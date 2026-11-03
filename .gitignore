@@ -1,0 +1,7 @@
+.env.local
+.env
+*.docx
+.DS_Store
+node_modules/
+.netlify/
+supabase/.temp/
