@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Inscritos · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main>
+    <div class="cabecera-pagina">
+      <div>
+        <h1 id="titulo">Inscritos</h1>
+        <p class="sub" id="subtitulo"></p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap">
+        <a class="btn btn-claro" href="eventos.html">← Eventos</a>
+        <a class="btn btn-claro" id="enlace-editar" href="#">Editar evento</a>
+      </div>
+    </div>
+    <div id="aviso" class="aviso"></div>
+    <section class="indicadores" id="indicadores"></section>
+
+    <section class="tarjeta">
+      <h2 style="margin-bottom:12px">Inscritos</h2>
+      <div id="acciones-asistencia"></div>
+      <div class="tabla-scroll" id="inscritos"></div>
+    </section>
+    <section class="tarjeta">
+      <h2 style="margin-bottom:4px">Lista de espera</h2>
+      <p class="sub" style="margin:0 0 12px">Ordenada por llegada. Al liberar un cupo, inscribe a quien sigue.</p>
+      <div class="tabla-scroll" id="espera"></div>
+    </section>
+    <section class="tarjeta" id="bloque-canceladas" style="display:none">
+      <h2 style="margin-bottom:12px">Canceladas</h2>
+      <div class="tabla-scroll" id="canceladas"></div>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const eventoId = new URLSearchParams(location.search).get("e");
+    let evento = null;
+    let postulaciones = [];
+
+    const fechaCorta = (iso) => new Date(iso).toLocaleString("es-VE", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
+
+    function tabla(filas, columnas) {
+      return `<table><thead><tr>${columnas.map((c) => `<th>${c}</th>`).join("")}</tr></thead><tbody>${filas.join("")}</tbody></table>`;
+    }
+
+    function pintar() {
+      const ins = postulaciones.filter((p) => p.estado === "inscrito");
+      const esp = postulaciones.filter((p) => p.estado === "lista_espera");
+      const can = postulaciones.filter((p) => p.estado === "cancelado");
+      const libres = Math.max(evento.cupo_maximo - ins.length, 0);
+      const asistieron = ins.filter((p) => p.asistencia === "asistio").length;
+      const noAsistieron = ins.filter((p) => p.asistencia === "no_asistio").length;
+      const pendientes = ins.length - asistieron - noAsistieron;
+      const marcados = asistieron + noAsistieron;
+
+      document.getElementById("titulo").textContent = evento.nombre;
+      document.getElementById("subtitulo").textContent =
+        `${formatearFecha(evento.fecha)} · ${formatearHora(evento.hora_inicio)} – ${formatearHora(evento.hora_fin)} · ${evento.sala}`;
+      document.getElementById("indicadores").innerHTML = [
+        [`${ins.length} / ${evento.cupo_maximo}`, "Inscritos / cupo"],
+        [libres, "Cupos libres"],
+        [esp.length, "En lista de espera"],
+        [asistieron, "Asistieron"],
+        [marcados ? Math.round((asistieron / marcados) * 100) + "%" : "—", "Asistencia (sobre los marcados)"],
+      ].map(([v, t]) => `<div class="indicador"><div class="valor">${v}</div><div class="etiqueta">${t}</div></div>`).join("");
+
+      const datos = (p) => `<td><div class="nombre">${esc(p.nombre_completo)}</div><div class="detalle">${esc(p.correo)}</div></td>
+        <td>${esc(p.area)}</td><td>${fechaCorta(p.creado_en)}</td>`;
+
+      document.getElementById("inscritos").innerHTML = ins.length
+        ? tabla(ins.map((p) => `<tr>${datos(p)}
+            <td><select class="sel-asistencia" data-id="${p.id}" aria-label="Asistencia de ${esc(p.nombre_completo)}" style="min-width:140px;padding:7px 10px">
+              <option value="pendiente" ${p.asistencia === "pendiente" ? "selected" : ""}>Pendiente</option>
+              <option value="asistio" ${p.asistencia === "asistio" ? "selected" : ""}>Asistió</option>
+              <option value="no_asistio" ${p.asistencia === "no_asistio" ? "selected" : ""}>No asistió</option>
+            </select></td>
+            <td><button class="btn btn-peligro btn-chico" data-accion="cancelar" data-id="${p.id}">Cancelar</button></td></tr>`),
+                ["Persona", "Área", "Postulada", "Asistencia", ""])
+        : '<div class="vacio">Aún no hay inscritos.</div>';
+
+      document.getElementById("espera").innerHTML = esp.length
+        ? tabla(esp.map((p, i) => `<tr>${i === 0 ? "<td><span class='etiqueta-estado est-espera'>1.º · sigue</span></td>" : `<td>${i + 1}.º</td>`}${datos(p)}
+            <td style="white-space:nowrap">
+              <button class="btn btn-chico" data-accion="inscribir" data-id="${p.id}" ${libres ? "" : "disabled title='No hay cupos libres'"}>Inscribir</button>
+              <button class="btn btn-peligro btn-chico" data-accion="cancelar" data-id="${p.id}">Cancelar</button>
+            </td></tr>`),
+                ["Posición", "Persona", "Área", "Postulada", ""])
+        : '<div class="vacio">Nadie en lista de espera.</div>';
+
+      document.getElementById("acciones-asistencia").innerHTML = pendientes && evento.fecha <= hoyISO()
+        ? `<p style="margin:0 0 12px"><button class="btn btn-claro btn-chico" data-accion="cerrar-asistencia">Marcar los ${pendientes} pendientes como «no asistió»</button></p>`
+        : "";
+
+      document.getElementById("bloque-canceladas").style.display = can.length ? "block" : "none";
+      document.getElementById("canceladas").innerHTML = can.length
+        ? tabla(can.map((p) => `<tr>${datos(p)}</tr>`), ["Persona", "Área", "Postulada"]) : "";
+    }
+
+    async function cargar() {
+      const [ev, po] = await Promise.all([
+        sb.from("eventos").select("*").eq("id", eventoId).single(),
+        sb.from("postulaciones").select("*").eq("evento_id", eventoId).order("creado_en", { ascending: true }),
+      ]);
+      if (ev.error || po.error) throw ev.error || po.error;
+      evento = ev.data;
+      postulaciones = po.data;
+      pintar();
+    }
+
+    document.querySelector("main").addEventListener("click", async (e) => {
+      const b = e.target.closest("button[data-accion]");
+      if (!b) return;
+      const p = postulaciones.find((x) => x.id === b.dataset.id);
+      document.getElementById("aviso").className = "aviso";
+
+      if (b.dataset.accion === "cerrar-asistencia") {
+        if (!confirm("Se marcará como «no asistió» a todos los inscritos que siguen pendientes. ¿Continuar?")) return;
+        const { error } = await sb.from("postulaciones").update({ asistencia: "no_asistio" })
+          .eq("evento_id", eventoId).eq("estado", "inscrito").eq("asistencia", "pendiente");
+        if (error) return mostrarAviso("aviso", "error", "No se pudo cerrar la asistencia: " + error.message);
+        await cargar();
+        return mostrarAviso("aviso", "ok", "Asistencia cerrada.");
+      }
+
+      if (b.dataset.accion === "cancelar") {
+        const libera = p.estado === "inscrito" ? " Se liberará su cupo." : "";
+        if (!confirm(`¿Cancelar la postulación de ${p.nombre_completo}?${libera}`)) return;
+        const { error } = await sb.from("postulaciones").update({ estado: "cancelado" }).eq("id", p.id);
+        if (error) return mostrarAviso("aviso", "error", "No se pudo cancelar: " + error.message);
+        await cargar();
+        mostrarAviso("aviso", "ok", p.estado === "inscrito" && postulaciones.some((x) => x.estado === "lista_espera")
+          ? "Cancelada. Hay un cupo libre: puedes inscribir a quien sigue en la lista de espera."
+          : "Postulación cancelada.");
+      }
+
+      if (b.dataset.accion === "inscribir") {
+        b.disabled = true;
+        const { error } = await sb.from("postulaciones").update({ estado: "inscrito" }).eq("id", p.id).eq("estado", "lista_espera");
+        if (error) {
+          await cargar();
+          return mostrarAviso("aviso", "error", error.message.includes("CUPO_LLENO")
+            ? "No hay cupos libres: otra acción acaba de ocuparlos."
+            : "No se pudo inscribir: " + error.message);
+        }
+        let enviado = false;
+        try {
+          const res = await sb.functions.invoke("enviar-confirmacion", { body: { codigo: p.codigo } });
+          enviado = res.data?.enviado === true;
+        } catch (_) {}
+        await cargar();
+        mostrarAviso("aviso", enviado ? "ok" : "error", enviado
+          ? `${p.nombre_completo} quedó inscrito/a y se le envió el correo con su código QR.`
+          : `${p.nombre_completo} quedó inscrito/a, pero no se pudo enviar el correo.`);
+      }
+    });
+
+    document.querySelector("main").addEventListener("change", async (e) => {
+      const sel = e.target.closest(".sel-asistencia");
+      if (!sel) return;
+      document.getElementById("aviso").className = "aviso";
+      const { error } = await sb.from("postulaciones").update({ asistencia: sel.value }).eq("id", sel.dataset.id).eq("estado", "inscrito");
+      if (error) mostrarAviso("aviso", "error", "No se pudo guardar la asistencia: " + error.message);
+      await cargar();
+    });
+
+    (async () => {
+      if (!(await requerirSesion())) return;
+      montarEncabezado("eventos");
+      if (!eventoId) return mostrarAviso("aviso", "error", "Falta indicar el evento.");
+      document.getElementById("enlace-editar").href = "evento-form.html?id=" + encodeURIComponent(eventoId);
+      try {
+        await cargar();
+        setInterval(() => cargar().catch(() => {}), 20000);
+      } catch (err) {
+        mostrarAviso("aviso", "error", "No se pudo cargar el evento.");
+      }
+    })();
+  </script>
+</body>
+</html>
