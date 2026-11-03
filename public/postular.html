@@ -1,0 +1,118 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Postulación · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="publica-banda"><div>Agenda de Capacitación<small>Centro de Capacitación y Aprendizaje</small></div></div>
+  <main class="publica" id="contenido">
+    <div class="vacio">Cargando evento…</div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const eventoId = new URLSearchParams(location.search).get("e");
+    const cont = document.getElementById("contenido");
+    let nombreEvento = "el evento";
+
+    function noDisponible() {
+      cont.innerHTML = `<div class="tarjeta resultado"><h2>Evento no disponible</h2>
+        <p>Este enlace no es válido o las postulaciones ya cerraron. Consulta con el equipo de Capacitación y Aprendizaje.</p></div>`;
+    }
+
+    function pintarEvento(ev) {
+      nombreEvento = ev.nombre;
+      const lleno = ev.cupos_disponibles <= 0;
+      cont.innerHTML = `
+        <div class="tarjeta">
+          <h1>${esc(ev.nombre)}</h1>
+          ${ev.descripcion ? `<p class="sub">${esc(ev.descripcion)}</p>` : ""}
+          <dl class="datos-evento">
+            <div><dt>Fecha</dt><dd>${formatearFecha(ev.fecha)}</dd></div>
+            <div><dt>Horario</dt><dd>${formatearHora(ev.hora_inicio)} – ${formatearHora(ev.hora_fin)}</dd></div>
+            <div><dt>Sala</dt><dd>${esc(ev.sala)}</dd></div>
+            <div><dt>Instructor</dt><dd>${esc(ev.instructor)}</dd></div>
+          </dl>
+          <div class="cupos ${lleno ? "lleno" : ""}">
+            ${lleno
+              ? "Cupos completos. Si te postulas, quedarás en <strong>lista de espera</strong>."
+              : `Quedan <strong>${ev.cupos_disponibles}</strong> de ${ev.cupo_maximo} cupos`}
+          </div>
+        </div>
+        <form class="tarjeta" id="form">
+          <h2 style="margin-bottom:14px">${lleno ? "Unirme a la lista de espera" : "Postularme"}</h2>
+          <div id="aviso" class="aviso"></div>
+          <div class="campo"><label for="nombre">Nombre completo</label><input id="nombre" required maxlength="120" autocomplete="name"></div>
+          <div class="campo"><label for="correo">Correo</label><input id="correo" type="email" required maxlength="160" autocomplete="email" inputmode="email"></div>
+          <div class="campo"><label for="area">Área o departamento</label><input id="area" required maxlength="80"></div>
+          <div class="acciones"><button class="btn" id="btn" type="submit" style="width:100%;padding:13px">${lleno ? "Anotarme en la lista de espera" : "Enviar postulación"}</button></div>
+        </form>`;
+      document.getElementById("form").addEventListener("submit", enviar);
+    }
+
+    async function enviar(e) {
+      e.preventDefault();
+      const btn = document.getElementById("btn");
+      const textoOriginal = btn.textContent;
+      btn.disabled = true;
+      btn.textContent = "Enviando…";
+      document.getElementById("aviso").className = "aviso";
+
+      const { data, error } = await sb.rpc("postularse", {
+        p_evento_id: eventoId,
+        p_nombre: document.getElementById("nombre").value,
+        p_correo: document.getElementById("correo").value,
+        p_area: document.getElementById("area").value,
+      });
+
+      if (error) {
+        btn.disabled = false;
+        btn.textContent = textoOriginal;
+        if (error.message.includes("YA_POSTULADO"))
+          return mostrarAviso("aviso", "error", "Ya te postulaste a este evento con ese correo.");
+        if (error.message.includes("EVENTO_NO_DISPONIBLE")) return noDisponible();
+        return mostrarAviso("aviso", "error", "No pudimos registrar tu postulación. Revisa tus datos e inténtalo de nuevo.");
+      }
+
+      const r = Array.isArray(data) ? data[0] : data;
+      const correo = esc(document.getElementById("correo").value.trim().toLowerCase());
+
+      // El correo no bloquea la confirmación: si falla, igual se muestra en pantalla
+      let correoEnviado = false;
+      try {
+        const res = await sb.functions.invoke("enviar-confirmacion", { body: { codigo: r.codigo } });
+        correoEnviado = res.data?.enviado === true;
+      } catch (_) {}
+      const avisoCorreo = correoEnviado
+        ? `<p>Te enviamos la confirmación a ${correo}. Si no la ves, revisa tu carpeta de spam.</p>`
+        : `<p>No pudimos enviar el correo de confirmación, pero tu registro quedó guardado.</p>`;
+
+      if (r.estado === "inscrito") {
+        cont.innerHTML = `<div class="tarjeta resultado ok"><div class="icono">✓</div>
+          <h2>¡Quedaste inscrito!</h2>
+          <p>Tu cupo está confirmado para <strong>${esc(nombreEvento)}</strong>.</p>
+          ${avisoCorreo}
+          <p style="margin-top:18px"><a class="btn" href="qr.html?c=${r.codigo}">Ver mi código QR</a></p></div>`;
+      } else {
+        cont.innerHTML = `<div class="tarjeta resultado espera"><div class="icono">…</div>
+          <h2>Estás en lista de espera</h2>
+          <p>Los cupos se completaron. Tu posición es la <strong>n.º ${r.posicion_espera}</strong>.</p>
+          ${avisoCorreo}
+          <p>Si se libera un cupo, el equipo te inscribirá y te avisará por correo.</p></div>`;
+      }
+    }
+
+    (async () => {
+      if (!eventoId) return noDisponible();
+      const { data, error } = await sb.rpc("evento_publico", { p_evento_id: eventoId });
+      const ev = Array.isArray(data) ? data[0] : data;
+      if (error || !ev) return noDisponible();
+      pintarEvento(ev);
+    })();
+  </script>
+</body>
+</html>
