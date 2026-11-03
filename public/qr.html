@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Mi código QR · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css">
+  <style>
+    .qr-caja { background: var(--blanco); border: 3px solid var(--rojo); border-radius: 18px; padding: 14px; display: inline-block; line-height: 0; }
+    .qr-caja svg { width: min(260px, 70vw); height: auto; }
+    .centro { text-align: center; }
+  </style>
+</head>
+<body>
+  <div class="publica-banda"><div>Agenda de Capacitación<small>Centro de Capacitación y Aprendizaje</small></div></div>
+  <main class="publica" id="contenido"><div class="vacio">Cargando…</div></main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const codigo = new URLSearchParams(location.search).get("c");
+    const cont = document.getElementById("contenido");
+
+    function invalido() {
+      cont.innerHTML = `<div class="tarjeta resultado"><h2>Código no válido</h2>
+        <p>Revisa que abriste el enlace completo del correo de confirmación.</p></div>`;
+    }
+
+    (async () => {
+      if (!codigo || !/^[0-9a-f]{32}$/.test(codigo)) return invalido();
+      const { data, error } = await sb.rpc("obtener_postulacion", { p_codigo: codigo });
+      const p = Array.isArray(data) ? data[0] : data;
+      if (error || !p) return invalido();
+
+      const evento = `<h1>${esc(p.evento_nombre)}</h1>
+        <dl class="datos-evento">
+          <div><dt>Fecha</dt><dd>${formatearFecha(p.fecha)}</dd></div>
+          <div><dt>Horario</dt><dd>${formatearHora(p.hora_inicio)} – ${formatearHora(p.hora_fin)}</dd></div>
+          <div><dt>Sala</dt><dd>${esc(p.sala)}</dd></div>
+        </dl>`;
+
+      if (p.estado === "inscrito") {
+        // El QR abre la pantalla de verificación del equipo (requiere su sesión)
+        const destino = new URL("verificar.html?c=" + codigo, location.href).href;
+        const qr = qrcode(0, "M");
+        qr.addData(destino);
+        qr.make();
+        cont.innerHTML = `<div class="tarjeta centro">
+            <p class="sub" style="margin:0 0 4px">Código de asistencia de</p>
+            <h2 style="font-size:1.4rem;margin-bottom:16px">${esc(p.nombre_completo)}</h2>
+            <div class="qr-caja">${qr.createSvgTag({ cellSize: 6, margin: 0, scalable: true })}</div>
+            <p class="sub" style="margin:14px 0 0">Muéstralo al equipo el día del evento. Es personal e intransferible.</p>
+          </div>
+          <div class="tarjeta">${evento}</div>`;
+      } else if (p.estado === "lista_espera") {
+        cont.innerHTML = `<div class="tarjeta resultado espera"><div class="icono">…</div>
+          <h2>Sigues en lista de espera</h2>
+          <p>Aún no tienes código QR. Si se libera un cupo y el equipo te inscribe, te avisaremos por correo y podrás verlo aquí.</p></div>
+          <div class="tarjeta">${evento}</div>`;
+      } else {
+        cont.innerHTML = `<div class="tarjeta resultado"><h2>Postulación cancelada</h2>
+          <p>Esta postulación fue cancelada, por lo que no tiene código QR.</p></div>`;
+      }
+    })();
+  </script>
+</body>
+</html>
