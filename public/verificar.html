@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Verificar asistencia · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main class="publica" id="contenido"><div class="vacio">Verificando código…</div></main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const codigo = new URLSearchParams(location.search).get("c");
+    const cont = document.getElementById("contenido");
+
+    function resultado(clase, icono, titulo, p, extra = "") {
+      const ev = p?.eventos;
+      cont.innerHTML = `<div class="tarjeta resultado ${clase}">
+          <div class="icono">${icono}</div>
+          <h2>${titulo}</h2>
+          ${p ? `<p style="font-size:1.15rem;color:var(--negro);font-weight:700">${esc(p.nombre_completo)}</p>
+                 <p>${esc(p.area)} · ${esc(p.correo)}</p>` : ""}
+          ${ev ? `<p><strong>${esc(ev.nombre)}</strong><br>${formatearFecha(ev.fecha)} · ${formatearHora(ev.hora_inicio)} – ${formatearHora(ev.hora_fin)} · ${esc(ev.sala)}</p>` : ""}
+          ${extra}
+          ${ev ? `<p style="margin-top:20px"><a class="btn btn-claro" href="inscritos.html?e=${ev.id}">Ver lista de inscritos</a></p>` : ""}
+        </div>`;
+    }
+
+    async function registrar(p) {
+      const { error } = await sb.from("postulaciones").update({ asistencia: "asistio" }).eq("id", p.id).eq("estado", "inscrito");
+      if (error) {
+        cont.innerHTML = `<div class="tarjeta resultado"><h2>No se pudo registrar</h2><p>${esc(error.message)}</p></div>`;
+        return;
+      }
+      resultado("ok", "✓", "Asistencia registrada", p);
+    }
+
+    (async () => {
+      if (!(await requerirSesion())) return;
+      montarEncabezado("eventos");
+      if (!codigo || !/^[0-9a-f]{32}$/.test(codigo)) return resultado("", "✕", "Código no válido", null);
+
+      const { data: p, error } = await sb.from("postulaciones").select("*, eventos(*)").eq("codigo", codigo).maybeSingle();
+      if (error) return resultado("", "✕", "No se pudo consultar el código", null);
+      if (!p) return resultado("", "✕", "Código no reconocido", null);
+
+      if (p.estado === "lista_espera") return resultado("espera", "!", "En lista de espera: no está inscrito", p);
+      if (p.estado === "cancelado") return resultado("espera", "!", "Postulación cancelada", p);
+      if (p.asistencia === "asistio") return resultado("espera", "!", "Ya se había registrado su asistencia", p);
+
+      // Si el evento no es hoy, se pide confirmación antes de registrar
+      if (p.eventos.fecha !== hoyISO()) {
+        resultado("espera", "!", "Este evento no es hoy", p,
+          `<p>La formación es el ${formatearFecha(p.eventos.fecha)}.</p>
+           <p style="margin-top:14px"><button class="btn" id="btn-forzar">Registrar asistencia de todos modos</button></p>`);
+        document.getElementById("btn-forzar").addEventListener("click", () => registrar(p));
+        return;
+      }
+      await registrar(p);
+    })();
+  </script>
+</body>
+</html>
