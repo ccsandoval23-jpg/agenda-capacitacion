@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Evento · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main style="max-width:820px">
+    <div class="cabecera-pagina">
+      <div>
+        <h1 id="titulo">Nuevo evento</h1>
+        <p class="sub" id="subtitulo">Completa los datos. Al guardar se genera el enlace público de postulación.</p>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap"><a class="btn btn-claro" href="eventos.html">← Volver</a><a class="btn" id="ver-inscritos" href="#" style="display:none">Ver inscritos</a></div>
+    </div>
+    <div id="aviso" class="aviso"></div>
+
+    <form class="tarjeta" id="form">
+      <div class="form-grid">
+        <div class="completo"><label for="nombre">Nombre de la formación</label><input id="nombre" required maxlength="140"></div>
+        <div class="completo"><label for="descripcion">Descripción</label><textarea id="descripcion" placeholder="Contenido y a quién va dirigida"></textarea></div>
+        <div><label for="fecha">Fecha</label><input id="fecha" type="date" required></div>
+        <div><label for="sala">Sala</label><input id="sala" required maxlength="80"></div>
+        <div><label for="hora_inicio">Hora de inicio</label><input id="hora_inicio" type="time" required></div>
+        <div><label for="hora_fin">Hora de fin</label><input id="hora_fin" type="time" required></div>
+        <div><label for="instructor">Instructor</label><input id="instructor" required maxlength="120"></div>
+        <div>
+          <label for="cupo_maximo">Cupo máximo</label>
+          <input id="cupo_maximo" type="number" min="1" step="1" required>
+          <div class="ayuda" id="ayuda-cupo"></div>
+        </div>
+        <div class="completo" id="bloque-estado" style="display:none">
+          <label for="estado">Estado de las postulaciones</label>
+          <select id="estado"><option value="abierto">Abierto (acepta postulaciones)</option><option value="cerrado">Cerrado</option></select>
+        </div>
+      </div>
+      <div class="acciones">
+        <button class="btn" id="btn-guardar" type="submit">Guardar evento</button>
+        <span class="espaciador"></span>
+        <button class="btn btn-peligro" id="btn-borrar" type="button" style="display:none">Eliminar evento</button>
+      </div>
+    </form>
+
+    <section class="tarjeta" id="bloque-enlace" style="display:none">
+      <h2 style="margin-bottom:6px">Enlace público de postulación</h2>
+      <p class="sub" style="margin-bottom:12px">Compártelo por el canal que prefieras. Los colaboradores no necesitan cuenta.</p>
+      <div class="enlace-publico">
+        <input id="enlace" readonly>
+        <button class="btn" id="btn-copiar" type="button">Copiar</button>
+      </div>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    const params = new URLSearchParams(location.search);
+    const eventoId = params.get("id");
+    let inscritosActuales = 0;
+    const campos = ["nombre", "descripcion", "fecha", "sala", "hora_inicio", "hora_fin", "instructor", "cupo_maximo"];
+    const val = (id) => document.getElementById(id).value;
+
+    function mostrarEnlace(id) {
+      document.getElementById("bloque-enlace").style.display = "block";
+      document.getElementById("enlace").value = new URL("postular.html?e=" + id, location.href).href;
+    }
+
+    document.getElementById("btn-copiar").addEventListener("click", async () => {
+      const input = document.getElementById("enlace");
+      try { await navigator.clipboard.writeText(input.value); } catch { input.select(); document.execCommand("copy"); }
+      const b = document.getElementById("btn-copiar");
+      b.textContent = "¡Copiado!";
+      setTimeout(() => (b.textContent = "Copiar"), 1800);
+    });
+
+    document.getElementById("form").addEventListener("submit", async (e) => {
+      e.preventDefault();
+      document.getElementById("aviso").className = "aviso";
+      const datos = {
+        nombre: val("nombre").trim(),
+        descripcion: val("descripcion").trim() || null,
+        fecha: val("fecha"),
+        sala: val("sala").trim(),
+        hora_inicio: val("hora_inicio"),
+        hora_fin: val("hora_fin"),
+        instructor: val("instructor").trim(),
+        cupo_maximo: parseInt(val("cupo_maximo"), 10),
+      };
+      if (datos.hora_fin <= datos.hora_inicio) return mostrarAviso("aviso", "error", "La hora de fin debe ser posterior a la de inicio.");
+      if (!(datos.cupo_maximo > 0)) return mostrarAviso("aviso", "error", "El cupo máximo debe ser mayor que cero.");
+      if (eventoId && datos.cupo_maximo < inscritosActuales)
+        return mostrarAviso("aviso", "error", `Ya hay ${inscritosActuales} inscritos: el cupo no puede ser menor.`);
+
+      const btn = document.getElementById("btn-guardar");
+      btn.disabled = true;
+      let res;
+      if (eventoId) {
+        datos.estado = val("estado");
+        res = await sb.from("eventos").update(datos).eq("id", eventoId).select().single();
+      } else {
+        res = await sb.from("eventos").insert(datos).select().single();
+      }
+      btn.disabled = false;
+      if (res.error) return mostrarAviso("aviso", "error", "No se pudo guardar: " + res.error.message);
+      if (!eventoId) {
+        location.href = "evento-form.html?id=" + res.data.id + "&creado=1";
+        return;
+      }
+      mostrarAviso("aviso", "ok", "Evento guardado.");
+    });
+
+    document.getElementById("btn-borrar").addEventListener("click", async () => {
+      const msg = inscritosActuales
+        ? `Este evento tiene postulaciones y se borrarán con él. ¿Eliminar de todas formas?`
+        : "¿Eliminar este evento?";
+      if (!confirm(msg)) return;
+      const { error } = await sb.from("eventos").delete().eq("id", eventoId);
+      if (error) return mostrarAviso("aviso", "error", "No se pudo eliminar: " + error.message);
+      location.href = "eventos.html";
+    });
+
+    (async () => {
+      if (!(await requerirSesion())) return;
+      montarEncabezado("eventos");
+      if (!eventoId) return;
+
+      document.getElementById("titulo").textContent = "Editar evento";
+      document.getElementById("subtitulo").textContent = "Modifica los datos o cierra las postulaciones.";
+      document.getElementById("bloque-estado").style.display = "block";
+      document.getElementById("btn-borrar").style.display = "inline-block";
+
+      const [ev, po] = await Promise.all([
+        sb.from("eventos").select("*").eq("id", eventoId).single(),
+        sb.from("postulaciones").select("estado").eq("evento_id", eventoId),
+      ]);
+      if (ev.error) return mostrarAviso("aviso", "error", "No se encontró el evento.");
+      for (const c of campos) document.getElementById(c).value = (c.startsWith("hora") ? formatearHora(ev.data[c]) : ev.data[c]) ?? "";
+      document.getElementById("estado").value = ev.data.estado;
+      inscritosActuales = (po.data ?? []).filter((p) => p.estado === "inscrito").length;
+      document.getElementById("ayuda-cupo").textContent = `Inscritos actualmente: ${inscritosActuales}.`;
+      mostrarEnlace(eventoId);
+      const vi = document.getElementById("ver-inscritos");
+      vi.href = "inscritos.html?e=" + eventoId;
+      vi.style.display = "inline-block";
+      if (params.get("creado")) mostrarAviso("aviso", "ok", "Evento creado. Ya puedes copiar el enlace de postulación.");
+    })();
+  </script>
+</body>
+</html>

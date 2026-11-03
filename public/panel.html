@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Panel · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main>
+    <div class="cabecera-pagina">
+      <div>
+        <h1>Panel resumen</h1>
+        <p class="sub">Cupos, lista de espera y asistencia de un vistazo.</p>
+      </div>
+      <a class="btn" href="evento-form.html">+ Nuevo evento</a>
+    </div>
+    <div id="aviso" class="aviso"></div>
+    <section class="indicadores" id="indicadores"></section>
+    <section class="tarjeta">
+      <h2 style="margin-bottom:12px">Próximos eventos</h2>
+      <div class="tabla-scroll" id="proximos"></div>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js"></script>
+  <script>
+    (async () => {
+      if (!(await requerirSesion())) return;
+      montarEncabezado("panel");
+      try {
+        const eventos = await cargarEventosConConteos();
+        const hoy = hoyISO();
+        const proximos = eventos.filter((e) => e.fecha >= hoy);
+        const pasados = eventos.filter((e) => e.fecha <= hoy);
+
+        const cupoTotal = proximos.reduce((s, e) => s + e.cupo_maximo, 0);
+        const inscritos = proximos.reduce((s, e) => s + e.inscritos, 0);
+        const espera = proximos.reduce((s, e) => s + e.espera, 0);
+        const asistio = pasados.reduce((s, e) => s + e.asistio, 0);
+        const marcados = pasados.reduce((s, e) => s + e.asistio + e.no_asistio, 0);
+
+        const tarjetas = [
+          [proximos.length, "Eventos próximos"],
+          [cupoTotal ? Math.round((inscritos / cupoTotal) * 100) + "%" : "—", "Ocupación de cupos"],
+          [espera, "En lista de espera"],
+          [marcados ? Math.round((asistio / marcados) * 100) + "%" : "—", "Asistencia registrada"],
+        ];
+        document.getElementById("indicadores").innerHTML = tarjetas
+          .map(([v, t]) => `<div class="indicador"><div class="valor">${v}</div><div class="etiqueta">${t}</div></div>`).join("");
+
+        const cont = document.getElementById("proximos");
+        if (!proximos.length) {
+          cont.innerHTML = '<div class="vacio">No hay eventos próximos. Crea el primero con «Nuevo evento».</div>';
+          return;
+        }
+        cont.innerHTML = `<table><thead><tr><th>Evento</th><th>Fecha</th><th>Sala</th><th>Ocupación</th><th>Espera</th><th></th></tr></thead><tbody>` +
+          proximos.slice(0, 8).map((e) => `<tr>
+            <td><div class="nombre">${esc(e.nombre)}</div><div class="detalle">${esc(e.instructor)}</div></td>
+            <td>${formatearFecha(e.fecha)}<div class="detalle">${formatearHora(e.hora_inicio)} – ${formatearHora(e.hora_fin)}</div></td>
+            <td>${esc(e.sala)}</td>
+            <td>${barraOcupacion(e.inscritos, e.cupo_maximo)}</td>
+            <td>${e.espera ? '<span class="etiqueta-estado est-espera">' + e.espera + '</span>' : '—'}</td>
+            <td><a class="btn btn-claro btn-chico" href="inscritos.html?e=${e.id}">Ver inscritos</a></td>
+          </tr>`).join("") + "</tbody></table>";
+      } catch (err) {
+        mostrarAviso("aviso", "error", "No se pudieron cargar los datos: " + err.message);
+      }
+    })();
+  </script>
+</body>
+</html>
