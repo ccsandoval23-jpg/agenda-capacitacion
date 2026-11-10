@@ -1,0 +1,142 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Instructores · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css?v=6">
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main>
+    <div class="cabecera-pagina">
+      <div>
+        <h1>Instructores</h1>
+        <p class="sub">Quienes dictan las formaciones. Aparecen como opciones al crear un evento.</p>
+      </div>
+      <button class="btn" id="btn-nuevo" type="button">+ Nuevo instructor</button>
+    </div>
+    <div id="aviso" class="aviso"></div>
+
+    <form class="tarjeta" id="form" style="display:none;margin-bottom:16px">
+      <h2 id="form-titulo" style="margin-bottom:14px">Nuevo instructor</h2>
+      <div class="form-grid">
+        <div><label for="nombre">Nombre completo</label><input id="nombre" required maxlength="120"></div>
+        <div><label for="correo">Correo (opcional)</label><input id="correo" type="email" maxlength="160"></div>
+        <div class="completo"><label for="especialidad">Especialidad o tema (opcional)</label><input id="especialidad" maxlength="160" placeholder="Ej. Liderazgo, Seguridad industrial"></div>
+        <div class="completo"><label style="display:flex;gap:8px;align-items:center;font-weight:700"><input id="activo" type="checkbox" checked style="width:auto"> Activo (disponible al crear eventos)</label></div>
+      </div>
+      <div class="acciones">
+        <button class="btn" id="btn-guardar" type="submit">Guardar</button>
+        <button class="btn btn-claro" id="btn-cancelar" type="button">Cancelar</button>
+      </div>
+    </form>
+
+    <section class="tarjeta"><div class="tabla-scroll" id="lista"></div></section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js?v=6"></script>
+  <script>
+    let instructores = [];
+    let usos = {};
+    let editandoId = null;
+    const $ = (id) => document.getElementById(id);
+
+    function abrirForm(i) {
+      editandoId = i ? i.id : null;
+      $("form-titulo").textContent = i ? "Editar instructor" : "Nuevo instructor";
+      $("nombre").value = i?.nombre ?? "";
+      $("correo").value = i?.correo ?? "";
+      $("especialidad").value = i?.especialidad ?? "";
+      $("activo").checked = i ? i.activo : true;
+      $("form").style.display = "block";
+      $("nombre").focus();
+      $("form").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    function cerrarForm() { $("form").style.display = "none"; editandoId = null; }
+
+    function pintar() {
+      const cont = $("lista");
+      if (!instructores.length) {
+        cont.innerHTML = '<div class="vacio">Aún no hay instructores. Crea el primero con «Nuevo instructor».</div>';
+        return;
+      }
+      cont.innerHTML = `<table><thead><tr><th>Instructor</th><th>Especialidad</th><th>Eventos</th><th>Estado</th><th></th></tr></thead><tbody>` +
+        instructores.map((i) => `<tr>
+          <td><div class="nombre">${esc(i.nombre)}</div><div class="detalle">${esc(i.correo ?? "")}</div></td>
+          <td>${esc(i.especialidad ?? "—")}</td>
+          <td>${usos[i.id] ?? 0}</td>
+          <td><span class="etiqueta-estado ${i.activo ? "est-abierto" : "est-cerrado"}">${i.activo ? "Activo" : "Inactivo"}</span></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-claro btn-chico" data-accion="editar" data-id="${i.id}">Editar</button>
+            <button class="btn btn-peligro btn-chico" data-accion="borrar" data-id="${i.id}">Eliminar</button>
+          </td>
+        </tr>`).join("") + "</tbody></table>";
+    }
+
+    async function cargar() {
+      const [i, e] = await Promise.all([
+        sb.from("instructores").select("*").order("nombre"),
+        sb.from("eventos").select("instructor_id").not("instructor_id", "is", null),
+      ]);
+      if (i.error) throw i.error;
+      if (e.error) throw e.error;
+      instructores = i.data;
+      usos = {};
+      for (const x of e.data) usos[x.instructor_id] = (usos[x.instructor_id] ?? 0) + 1;
+      pintar();
+    }
+
+    $("btn-nuevo").addEventListener("click", () => abrirForm(null));
+    $("btn-cancelar").addEventListener("click", cerrarForm);
+
+    $("form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      $("aviso").className = "aviso";
+      const datos = {
+        nombre: $("nombre").value.trim(),
+        correo: $("correo").value.trim() || null,
+        especialidad: $("especialidad").value.trim() || null,
+        activo: $("activo").checked,
+      };
+      $("btn-guardar").disabled = true;
+      const res = editandoId
+        ? await sb.from("instructores").update(datos).eq("id", editandoId)
+        : await sb.from("instructores").insert(datos);
+      $("btn-guardar").disabled = false;
+      if (res.error) {
+        const dup = res.error.code === "23505";
+        return mostrarAviso("aviso", "error", dup ? "Ya existe un instructor con ese nombre." : "No se pudo guardar: " + res.error.message);
+      }
+      const editado = !!editandoId;
+      cerrarForm();
+      await cargar();
+      mostrarAviso("aviso", "ok", editado ? "Instructor actualizado." : "Instructor creado.");
+    });
+
+    $("lista").addEventListener("click", async (ev) => {
+      const b = ev.target.closest("button[data-accion]");
+      if (!b) return;
+      const i = instructores.find((x) => x.id === b.dataset.id);
+      if (b.dataset.accion === "editar") return abrirForm(i);
+      const n = usos[i.id] ?? 0;
+      const msg = n
+        ? `«${i.nombre}» está en ${n} evento(s). Los eventos conservarán su nombre, pero ya no estarán vinculados al catálogo. ¿Eliminar?`
+        : `¿Eliminar a «${i.nombre}»?`;
+      if (!confirm(msg)) return;
+      const { error } = await sb.from("instructores").delete().eq("id", i.id);
+      if (error) return mostrarAviso("aviso", "error", "No se pudo eliminar: " + error.message);
+      await cargar();
+      mostrarAviso("aviso", "ok", "Instructor eliminado.");
+    });
+
+    (async () => {
+      if (!(await requerirSesion())) return;
+      montarEncabezado("instructores");
+      try { await cargar(); }
+      catch (err) { mostrarAviso("aviso", "error", "No se pudieron cargar los instructores: " + err.message + " (¿ya ejecutaste la migración 005?)"); }
+    })();
+  </script>
+</body>
+</html>

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Evento · Agenda de Capacitación</title>
-  <link rel="stylesheet" href="css/styles.css?v=5">
+  <link rel="stylesheet" href="css/styles.css?v=6">
 </head>
 <body>
   <header id="encabezado"></header>
@@ -23,10 +23,10 @@
         <div class="completo"><label for="nombre">Nombre de la formación</label><input id="nombre" required maxlength="140"></div>
         <div class="completo"><label for="descripcion">Descripción</label><textarea id="descripcion" placeholder="Contenido y a quién va dirigida"></textarea></div>
         <div><label for="fecha">Fecha</label><input id="fecha" type="date" required></div>
-        <div><label for="sala">Sala</label><input id="sala" required maxlength="80"></div>
+        <div><label for="sala">Sala</label><select id="sala" required></select><div class="ayuda" id="ayuda-sala"></div></div>
         <div><label for="hora_inicio">Hora de inicio</label><input id="hora_inicio" type="time" required></div>
         <div><label for="hora_fin">Hora de fin</label><input id="hora_fin" type="time" required></div>
-        <div><label for="instructor">Instructor</label><input id="instructor" required maxlength="120"></div>
+        <div><label for="instructor">Instructor</label><select id="instructor" required></select><div class="ayuda" id="ayuda-instructor"></div></div>
         <div>
           <label for="cupo_maximo">Cupo máximo</label>
           <input id="cupo_maximo" type="number" min="1" step="1" required>
@@ -55,12 +55,36 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/app.js?v=5"></script>
+  <script src="js/app.js?v=6"></script>
   <script>
     const params = new URLSearchParams(location.search);
     const eventoId = params.get("id");
     let inscritosActuales = 0;
-    const campos = ["nombre", "descripcion", "fecha", "sala", "hora_inicio", "hora_fin", "instructor", "cupo_maximo"];
+    const campos = ["nombre", "descripcion", "fecha", "hora_inicio", "hora_fin", "cupo_maximo"];
+    let catInstructores = [];
+    let catSalas = [];
+    const LEGADO = "__legado";
+
+    // Llena un selector con el catálogo activo (+ el valor actual del evento si ya no está disponible)
+    function llenarSelector(id, items, etiqueta, actualId, actualTexto) {
+      const sel = document.getElementById(id);
+      const opciones = items.filter((x) => x.activo || x.id === actualId);
+      let html = '<option value="">Selecciona…</option>' +
+        opciones.map((x) => `<option value="${x.id}">${esc(etiqueta(x))}${x.activo ? "" : " (inactivo)"}</option>`).join("");
+      if (!actualId && actualTexto) html += `<option value="${LEGADO}">${esc(actualTexto)} (sin catálogo)</option>`;
+      sel.innerHTML = html;
+      sel.value = actualId ?? (actualTexto ? LEGADO : "");
+    }
+
+    function ayudaCatalogos() {
+      const s = catSalas.find((x) => x.id === val("sala"));
+      document.getElementById("ayuda-sala").innerHTML = s
+        ? `${esc(TIPOS_SALA[s.tipo])} · ${esc(s.ubicacion)}${s.capacidad ? " · capacidad " + s.capacidad : ""}`
+        : (catSalas.some((x) => x.activo) ? "" : 'No hay salas. <a href="salas.html">Crear una sala</a>');
+      document.getElementById("ayuda-instructor").innerHTML =
+        catInstructores.some((x) => x.activo) ? "" : 'No hay instructores. <a href="instructores.html">Crear un instructor</a>';
+    }
+    document.getElementById("sala").addEventListener("change", ayudaCatalogos);
     const val = (id) => document.getElementById(id).value;
 
     function mostrarEnlace(id) {
@@ -83,12 +107,22 @@
         nombre: val("nombre").trim(),
         descripcion: val("descripcion").trim() || null,
         fecha: val("fecha"),
-        sala: val("sala").trim(),
         hora_inicio: val("hora_inicio"),
         hora_fin: val("hora_fin"),
-        instructor: val("instructor").trim(),
         cupo_maximo: parseInt(val("cupo_maximo"), 10),
       };
+      const salaSel = val("sala");
+      const instSel = val("instructor");
+      if (!salaSel) return mostrarAviso("aviso", "error", "Selecciona una sala.");
+      if (!instSel) return mostrarAviso("aviso", "error", "Selecciona un instructor.");
+      if (salaSel !== LEGADO) {
+        const s = catSalas.find((x) => x.id === salaSel);
+        datos.sala_id = s.id; datos.sala = s.nombre;
+      }
+      if (instSel !== LEGADO) {
+        const i = catInstructores.find((x) => x.id === instSel);
+        datos.instructor_id = i.id; datos.instructor = i.nombre;
+      }
       if (datos.hora_fin <= datos.hora_inicio) return mostrarAviso("aviso", "error", "La hora de fin debe ser posterior a la de inicio.");
       if (!(datos.cupo_maximo > 0)) return mostrarAviso("aviso", "error", "El cupo máximo debe ser mayor que cero.");
       if (eventoId && datos.cupo_maximo < inscritosActuales)
@@ -125,7 +159,20 @@
     (async () => {
       if (!(await requerirSesion())) return;
       montarEncabezado("eventos");
-      if (!eventoId) return;
+
+      const [ins, sal] = await Promise.all([
+        sb.from("instructores").select("*").order("nombre"),
+        sb.from("salas").select("*").order("nombre"),
+      ]);
+      if (ins.error || sal.error) mostrarAviso("aviso", "error", "No se pudieron cargar instructores y salas (¿ya ejecutaste la migración 005?).");
+      catInstructores = ins.data ?? [];
+      catSalas = sal.data ?? [];
+      if (!eventoId) {
+        llenarSelector("sala", catSalas, (x) => `${x.nombre} · ${TIPOS_SALA[x.tipo]}`, null, null);
+        llenarSelector("instructor", catInstructores, (x) => x.nombre, null, null);
+        ayudaCatalogos();
+        return;
+      }
 
       document.getElementById("titulo").textContent = "Editar evento";
       document.getElementById("subtitulo").textContent = "Modifica los datos o cierra las postulaciones.";
@@ -137,6 +184,9 @@
         sb.from("postulaciones").select("estado").eq("evento_id", eventoId),
       ]);
       if (ev.error) return mostrarAviso("aviso", "error", "No se encontró el evento.");
+      llenarSelector("sala", catSalas, (x) => `${x.nombre} · ${TIPOS_SALA[x.tipo]}`, ev.data.sala_id, ev.data.sala);
+      llenarSelector("instructor", catInstructores, (x) => x.nombre, ev.data.instructor_id, ev.data.instructor);
+      ayudaCatalogos();
       for (const c of campos) document.getElementById(c).value = (c.startsWith("hora") ? formatearHora(ev.data[c]) : ev.data[c]) ?? "";
       document.getElementById("estado").value = ev.data.estado;
       inscritosActuales = (po.data ?? []).filter((p) => p.estado === "inscrito").length;

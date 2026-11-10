@@ -1,0 +1,158 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Salas · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css?v=6">
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main>
+    <div class="cabecera-pagina">
+      <div>
+        <h1>Salas</h1>
+        <p class="sub">Espacios del centro de capacitación. Aparecen como opciones al crear un evento.</p>
+      </div>
+      <button class="btn" id="btn-nueva" type="button">+ Nueva sala</button>
+    </div>
+    <div id="aviso" class="aviso"></div>
+
+    <form class="tarjeta" id="form" style="display:none;margin-bottom:16px">
+      <h2 id="form-titulo" style="margin-bottom:14px">Nueva sala</h2>
+      <div class="form-grid">
+        <div><label for="nombre">Nombre de la sala</label><input id="nombre" required maxlength="80" placeholder="Ej. Sala Andes"></div>
+        <div>
+          <label for="tipo">Tipo de sala</label>
+          <select id="tipo" required>
+            <option value="aula">Aula</option>
+            <option value="laboratorio">Laboratorio / sala de cómputo</option>
+            <option value="auditorio">Auditorio</option>
+            <option value="reuniones">Sala de reuniones</option>
+            <option value="virtual">Virtual</option>
+            <option value="otro">Otro</option>
+          </select>
+        </div>
+        <div class="completo"><label for="ubicacion">Ubicación</label><input id="ubicacion" required maxlength="160" placeholder="Ej. Edificio B, piso 2"></div>
+        <div><label for="capacidad">Capacidad (opcional)</label><input id="capacidad" type="number" min="1" step="1"></div>
+        <div style="display:flex;align-items:flex-end"><label style="display:flex;gap:8px;align-items:center;font-weight:700;margin-bottom:12px"><input id="activo" type="checkbox" checked style="width:auto"> Activa (disponible al crear eventos)</label></div>
+      </div>
+      <div class="acciones">
+        <button class="btn" id="btn-guardar" type="submit">Guardar</button>
+        <button class="btn btn-claro" id="btn-cancelar" type="button">Cancelar</button>
+      </div>
+    </form>
+
+    <section class="tarjeta"><div class="tabla-scroll" id="lista"></div></section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js?v=6"></script>
+  <script>
+    let salas = [];
+    let usos = {};
+    let editandoId = null;
+    const $ = (id) => document.getElementById(id);
+
+    function abrirForm(s) {
+      editandoId = s ? s.id : null;
+      $("form-titulo").textContent = s ? "Editar sala" : "Nueva sala";
+      $("nombre").value = s?.nombre ?? "";
+      $("tipo").value = s?.tipo ?? "aula";
+      $("ubicacion").value = s?.ubicacion ?? "";
+      $("capacidad").value = s?.capacidad ?? "";
+      $("activo").checked = s ? s.activo : true;
+      $("form").style.display = "block";
+      $("nombre").focus();
+      $("form").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    function cerrarForm() { $("form").style.display = "none"; editandoId = null; }
+
+    function pintar() {
+      const cont = $("lista");
+      if (!salas.length) {
+        cont.innerHTML = '<div class="vacio">Aún no hay salas. Crea la primera con «Nueva sala».</div>';
+        return;
+      }
+      cont.innerHTML = `<table><thead><tr><th>Sala</th><th>Tipo</th><th>Ubicación</th><th>Capacidad</th><th>Eventos</th><th>Estado</th><th></th></tr></thead><tbody>` +
+        salas.map((s) => `<tr>
+          <td><div class="nombre">${esc(s.nombre)}</div></td>
+          <td>${esc(TIPOS_SALA[s.tipo] ?? s.tipo)}</td>
+          <td>${esc(s.ubicacion)}</td>
+          <td>${s.capacidad ?? "—"}</td>
+          <td>${usos[s.id] ?? 0}</td>
+          <td><span class="etiqueta-estado ${s.activo ? "est-abierto" : "est-cerrado"}">${s.activo ? "Activa" : "Inactiva"}</span></td>
+          <td style="white-space:nowrap">
+            <button class="btn btn-claro btn-chico" data-accion="editar" data-id="${s.id}">Editar</button>
+            <button class="btn btn-peligro btn-chico" data-accion="borrar" data-id="${s.id}">Eliminar</button>
+          </td>
+        </tr>`).join("") + "</tbody></table>";
+    }
+
+    async function cargar() {
+      const [s, e] = await Promise.all([
+        sb.from("salas").select("*").order("nombre"),
+        sb.from("eventos").select("sala_id").not("sala_id", "is", null),
+      ]);
+      if (s.error) throw s.error;
+      if (e.error) throw e.error;
+      salas = s.data;
+      usos = {};
+      for (const x of e.data) usos[x.sala_id] = (usos[x.sala_id] ?? 0) + 1;
+      pintar();
+    }
+
+    $("btn-nueva").addEventListener("click", () => abrirForm(null));
+    $("btn-cancelar").addEventListener("click", cerrarForm);
+
+    $("form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      $("aviso").className = "aviso";
+      const cap = parseInt($("capacidad").value, 10);
+      const datos = {
+        nombre: $("nombre").value.trim(),
+        tipo: $("tipo").value,
+        ubicacion: $("ubicacion").value.trim(),
+        capacidad: cap > 0 ? cap : null,
+        activo: $("activo").checked,
+      };
+      $("btn-guardar").disabled = true;
+      const res = editandoId
+        ? await sb.from("salas").update(datos).eq("id", editandoId)
+        : await sb.from("salas").insert(datos);
+      $("btn-guardar").disabled = false;
+      if (res.error) {
+        const dup = res.error.code === "23505";
+        return mostrarAviso("aviso", "error", dup ? "Ya existe una sala con ese nombre." : "No se pudo guardar: " + res.error.message);
+      }
+      const editada = !!editandoId;
+      cerrarForm();
+      await cargar();
+      mostrarAviso("aviso", "ok", editada ? "Sala actualizada." : "Sala creada.");
+    });
+
+    $("lista").addEventListener("click", async (ev) => {
+      const b = ev.target.closest("button[data-accion]");
+      if (!b) return;
+      const s = salas.find((x) => x.id === b.dataset.id);
+      if (b.dataset.accion === "editar") return abrirForm(s);
+      const n = usos[s.id] ?? 0;
+      const msg = n
+        ? `«${s.nombre}» está en ${n} evento(s). Los eventos conservarán su nombre, pero ya no estarán vinculados al catálogo. ¿Eliminar?`
+        : `¿Eliminar la sala «${s.nombre}»?`;
+      if (!confirm(msg)) return;
+      const { error } = await sb.from("salas").delete().eq("id", s.id);
+      if (error) return mostrarAviso("aviso", "error", "No se pudo eliminar: " + error.message);
+      await cargar();
+      mostrarAviso("aviso", "ok", "Sala eliminada.");
+    });
+
+    (async () => {
+      if (!(await requerirSesion())) return;
+      montarEncabezado("salas");
+      try { await cargar(); }
+      catch (err) { mostrarAviso("aviso", "error", "No se pudieron cargar las salas: " + err.message + " (¿ya ejecutaste la migración 005?)"); }
+    })();
+  </script>
+</body>
+</html>

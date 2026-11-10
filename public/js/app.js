@@ -11,9 +11,13 @@ async function requerirSesion() {
   return session;
 }
 
+const TIPOS_SALA = { aula: "Aula", laboratorio: "Laboratorio / cómputo", auditorio: "Auditorio", reuniones: "Sala de reuniones", virtual: "Virtual", otro: "Otro" };
+
 const ICONOS = {
   panel: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
   eventos: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M8 2.5v4M16 2.5v4M3 10h18"/><path d="M8 14.5h2M14 14.5h2M8 17.5h2"/></svg>',
+  instructores: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>',
+  salas: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M2 21h20"/><path d="M16 9h2a2 2 0 0 1 2 2v10"/><circle cx="12" cy="13" r=".8" fill="currentColor"/></svg>',
   salir: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>',
 };
 
@@ -21,6 +25,8 @@ function montarEncabezado(activo) {
   const enlaces = [
     ["panel.html", "Panel", "panel", ICONOS.panel],
     ["eventos.html", "Eventos", "eventos", ICONOS.eventos],
+    ["instructores.html", "Instructores", "instructores", ICONOS.instructores],
+    ["salas.html", "Salas", "salas", ICONOS.salas],
   ];
   const el = document.getElementById("encabezado");
   el.className = "sidebar";
