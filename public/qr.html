@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Mi código QR · Agenda de Capacitación</title>
-  <link rel="stylesheet" href="css/styles.css">
+  <link rel="stylesheet" href="css/styles.css?v=5">
   <style>
     .qr-caja { background: var(--blanco); border: 3px solid var(--rojo); border-radius: 18px; padding: 14px; display: inline-block; line-height: 0; }
     .qr-caja svg { width: min(260px, 70vw); height: auto; }
@@ -12,12 +12,12 @@
   </style>
 </head>
 <body>
-  <div class="publica-banda"><div>Agenda de Capacitación<small>Centro de Capacitación y Aprendizaje</small></div></div>
+  <div class="publica-banda"><div><img src="img/logo.png" height="48" alt="Coca-Cola FEMSA">Agenda de Capacitación<small>Centro de Capacitación y Aprendizaje</small></div></div>
   <main class="publica" id="contenido"><div class="vacio">Cargando…</div></main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/app.js"></script>
+  <script src="js/app.js?v=5"></script>
   <script>
     const codigo = new URLSearchParams(location.search).get("c");
     const cont = document.getElementById("contenido");
