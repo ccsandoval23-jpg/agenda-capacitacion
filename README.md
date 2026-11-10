@@ -29,6 +29,8 @@ Flujo principal: *crear evento → compartir enlace → postulación (inscrito o
 | `postular.html` | Formulario público de postulación |
 | `qr.html` | «Mi código QR» (público, con el código secreto) |
 | `verificar.html` | Verificación por QR (solo equipo con sesión) |
+| `instructores.html` / `salas.html` | Catálogos de instructores y salas (tipo y ubicación) |
+| `usuarios.html` | Usuarios del equipo, roles y permisos (solo administradores) |
 
 ## Arquitectura
 
@@ -50,8 +52,8 @@ Flujo principal: *crear evento → compartir enlace → postulación (inscrito o
 
 ```
 public/                       sitio web (lo único que se publica)
-supabase/migrations/          SQL, en orden: esquema, reglas de cupo, control de correo, asistencia
-supabase/functions/           Edge Function enviar-confirmacion
+supabase/migrations/          SQL, en orden: esquema, reglas de cupo, control de correo, asistencia, instructores y salas, usuarios y permisos
+supabase/functions/           Edge Functions: enviar-confirmacion y gestionar-usuarios
 ```
 
 ## Puesta en marcha

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Inscritos · Agenda de Capacitación</title>
-  <link rel="stylesheet" href="css/styles.css?v=6">
+  <link rel="stylesheet" href="css/styles.css?v=7">
 </head>
 <body>
   <header id="encabezado"></header>
@@ -39,7 +39,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/app.js?v=7"></script>
   <script>
     const eventoId = new URLSearchParams(location.search).get("e");
     let evento = null;
@@ -77,25 +77,25 @@
 
       document.getElementById("inscritos").innerHTML = ins.length
         ? tabla(ins.map((p) => `<tr>${datos(p)}
-            <td><select class="sel-asistencia" data-id="${p.id}" aria-label="Asistencia de ${esc(p.nombre_completo)}" style="min-width:140px;padding:7px 10px">
+            <td><select class="sel-asistencia" data-id="${p.id}" ${puede("asistencia_registrar") ? "" : "disabled"} aria-label="Asistencia de ${esc(p.nombre_completo)}" style="min-width:140px;padding:7px 10px">
               <option value="pendiente" ${p.asistencia === "pendiente" ? "selected" : ""}>Pendiente</option>
               <option value="asistio" ${p.asistencia === "asistio" ? "selected" : ""}>Asistió</option>
               <option value="no_asistio" ${p.asistencia === "no_asistio" ? "selected" : ""}>No asistió</option>
             </select></td>
-            <td><button class="btn btn-peligro btn-chico" data-accion="cancelar" data-id="${p.id}">Cancelar</button></td></tr>`),
+            <td>${puede("inscritos_gestionar") ? `<button class="btn btn-peligro btn-chico" data-accion="cancelar" data-id="${p.id}">Cancelar</button>` : ""}</td></tr>`),
                 ["Persona", "Área", "Postulada", "Asistencia", ""])
         : '<div class="vacio">Aún no hay inscritos.</div>';
 
       document.getElementById("espera").innerHTML = esp.length
         ? tabla(esp.map((p, i) => `<tr>${i === 0 ? "<td><span class='etiqueta-estado est-espera'>1.º · sigue</span></td>" : `<td>${i + 1}.º</td>`}${datos(p)}
-            <td style="white-space:nowrap">
+            <td style="white-space:nowrap">${puede("inscritos_gestionar") ? `
               <button class="btn btn-chico" data-accion="inscribir" data-id="${p.id}" ${libres ? "" : "disabled title='No hay cupos libres'"}>Inscribir</button>
-              <button class="btn btn-peligro btn-chico" data-accion="cancelar" data-id="${p.id}">Cancelar</button>
+              <button class="btn btn-peligro btn-chico" data-accion="cancelar" data-id="${p.id}">Cancelar</button>` : ""}
             </td></tr>`),
                 ["Posición", "Persona", "Área", "Postulada", ""])
         : '<div class="vacio">Nadie en lista de espera.</div>';
 
-      document.getElementById("acciones-asistencia").innerHTML = pendientes && evento.fecha <= hoyISO()
+      document.getElementById("acciones-asistencia").innerHTML = pendientes && evento.fecha <= hoyISO() && puede("asistencia_registrar")
         ? `<p style="margin:0 0 12px"><button class="btn btn-claro btn-chico" data-accion="cerrar-asistencia">Marcar los ${pendientes} pendientes como «no asistió»</button></p>`
         : "";
 
@@ -172,10 +172,11 @@
     });
 
     (async () => {
-      if (!(await requerirSesion())) return;
+      if (!(await requerirSesion("eventos_ver"))) return;
       montarEncabezado("eventos");
+      if (!puede("eventos_gestionar")) document.getElementById("enlace-editar").remove();
       if (!eventoId) return mostrarAviso("aviso", "error", "Falta indicar el evento.");
-      document.getElementById("enlace-editar").href = "evento-form.html?id=" + encodeURIComponent(eventoId);
+      if (puede("eventos_gestionar")) document.getElementById("enlace-editar").href = "evento-form.html?id=" + encodeURIComponent(eventoId);
       try {
         await cargar();
         setInterval(() => cargar().catch(() => {}), 20000);

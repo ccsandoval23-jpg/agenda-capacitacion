@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Evento · Agenda de Capacitación</title>
-  <link rel="stylesheet" href="css/styles.css?v=6">
+  <link rel="stylesheet" href="css/styles.css?v=7">
 </head>
 <body>
   <header id="encabezado"></header>
@@ -55,7 +55,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/app.js?v=6"></script>
+  <script src="js/app.js?v=7"></script>
   <script>
     const params = new URLSearchParams(location.search);
     const eventoId = params.get("id");
@@ -157,7 +157,7 @@
     });
 
     (async () => {
-      if (!(await requerirSesion())) return;
+      if (!(await requerirSesion("eventos_gestionar"))) return;
       montarEncabezado("eventos");
 
       const [ins, sal] = await Promise.all([

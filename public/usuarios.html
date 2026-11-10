@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Usuarios · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css?v=7">
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main>
+    <div class="cabecera-pagina">
+      <div>
+        <h1>Usuarios</h1>
+        <p class="sub">Quién entra al sistema y qué puede hacer cada rol.</p>
+      </div>
+      <button class="btn" id="btn-nuevo" type="button">+ Nuevo usuario</button>
+    </div>
+    <div id="aviso" class="aviso"></div>
+
+    <div class="pestanas" id="pestanas">
+      <button data-t="usuarios" class="activo">Usuarios</button>
+      <button data-t="roles">Roles y permisos</button>
+    </div>
+
+    <div id="vista-usuarios">
+      <form class="tarjeta" id="form" style="display:none;margin-bottom:16px">
+        <h2 id="form-titulo" style="margin-bottom:14px">Nuevo usuario</h2>
+        <div class="form-grid">
+          <div><label for="nombre">Nombre completo</label><input id="nombre" required maxlength="120"></div>
+          <div><label for="correo">Correo</label><input id="correo" type="email" required maxlength="160" autocomplete="off"></div>
+          <div><label for="rol">Rol</label><select id="rol" required></select><div class="ayuda" id="ayuda-rol"></div></div>
+          <div>
+            <label for="clave" id="lbl-clave">Contraseña temporal</label>
+            <input id="clave" type="text" minlength="8" autocomplete="new-password" placeholder="Mínimo 8 caracteres">
+            <div class="ayuda" id="ayuda-clave">Compártela de forma segura con la persona.</div>
+          </div>
+        </div>
+        <div class="acciones">
+          <button class="btn" id="btn-guardar" type="submit">Guardar</button>
+          <button class="btn btn-claro" id="btn-generar" type="button">Generar contraseña</button>
+          <button class="btn btn-claro" id="btn-cancelar" type="button">Cancelar</button>
+        </div>
+      </form>
+      <section class="tarjeta"><div class="tabla-scroll" id="lista"><div class="vacio">Cargando…</div></div></section>
+    </div>
+
+    <div id="vista-roles" style="display:none">
+      <p class="sub" style="margin-bottom:16px">Marca lo que puede hacer cada rol. Los cambios aplican de inmediato a todas las personas con ese rol. El rol Administrador siempre tiene acceso total.</p>
+      <div id="roles"></div>
+    </div>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js?v=7"></script>
+  <script>
+    const $ = (id) => document.getElementById(id);
+    let usuarios = [];
+    let roles = [];
+    let editandoId = null;
+
+    // Llama a la función de servidor y devuelve el mensaje de error legible si falla
+    async function llamar(cuerpo) {
+      const { data, error } = await sb.functions.invoke("gestionar-usuarios", { body: cuerpo });
+      if (error) {
+        let msg = error.message;
+        try { msg = (await error.context.json()).error ?? msg; } catch (_) {}
+        throw new Error(msg);
+      }
+      if (data?.error) throw new Error(data.error);
+      return data;
+    }
+
+    const nombreRol = (clave) => roles.find((r) => r.clave === clave)?.nombre ?? clave;
+    const fechaHora = (iso) => iso ? new Date(iso).toLocaleString("es-VE", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "Nunca";
+
+    // ---------- Usuarios ----------
+    function pintarUsuarios() {
+      const cont = $("lista");
+      if (!usuarios.length) { cont.innerHTML = '<div class="vacio">Aún no hay usuarios.</div>'; return; }
+      cont.innerHTML = `<table><thead><tr><th>Usuario</th><th>Rol</th><th>Estado</th><th>Último acceso</th><th></th></tr></thead><tbody>` +
+        usuarios.map((u) => {
+          const yo = u.user_id === PERFIL_ID;
+          return `<tr>
+            <td><div class="nombre">${esc(u.nombre)}${yo ? " (tú)" : ""}</div><div class="detalle">${esc(u.correo)}</div></td>
+            <td><span class="etiqueta-estado est-rol">${esc(nombreRol(u.rol))}</span></td>
+            <td><span class="etiqueta-estado ${u.activo ? "est-abierto" : "est-cerrado"}">${u.activo ? "Activo" : "Desactivado"}</span></td>
+            <td>${fechaHora(u.ultimo_acceso)}</td>
+            <td style="white-space:nowrap">
+              <button class="btn btn-claro btn-chico" data-accion="editar" data-id="${u.user_id}">Editar</button>
+              ${yo ? "" : `<button class="btn btn-claro btn-chico" data-accion="estado" data-id="${u.user_id}">${u.activo ? "Desactivar" : "Activar"}</button>
+              <button class="btn btn-peligro btn-chico" data-accion="borrar" data-id="${u.user_id}">Eliminar</button>`}
+            </td></tr>`;
+        }).join("") + "</tbody></table>";
+    }
+
+    function llenarRoles() {
+      $("rol").innerHTML = roles.map((r) => `<option value="${r.clave}">${esc(r.nombre)}</option>`).join("");
+      mostrarAyudaRol();
+    }
+    function mostrarAyudaRol() {
+      $("ayuda-rol").textContent = roles.find((r) => r.clave === $("rol").value)?.descripcion ?? "";
+    }
+    $("rol").addEventListener("change", mostrarAyudaRol);
+
+    function abrirForm(u) {
+      editandoId = u ? u.user_id : null;
+      $("form-titulo").textContent = u ? "Editar usuario" : "Nuevo usuario";
+      $("nombre").value = u?.nombre ?? "";
+      $("correo").value = u?.correo ?? "";
+      $("correo").disabled = !!u;
+      $("rol").value = u?.rol ?? "consulta";
+      $("clave").value = "";
+      $("clave").required = !u;
+      $("lbl-clave").textContent = u ? "Nueva contraseña (opcional)" : "Contraseña temporal";
+      $("ayuda-clave").textContent = u ? "Déjala vacía para no cambiarla." : "Compártela de forma segura con la persona.";
+      mostrarAyudaRol();
+      $("form").style.display = "block";
+      $("nombre").focus();
+      $("form").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    function cerrarForm() { $("form").style.display = "none"; editandoId = null; }
+
+    $("btn-nuevo").addEventListener("click", () => { cambiarPestana("usuarios"); abrirForm(null); });
+    $("btn-cancelar").addEventListener("click", cerrarForm);
+    $("btn-generar").addEventListener("click", () => {
+      const a = new Uint32Array(12);
+      crypto.getRandomValues(a);
+      const letras = "abcdefghjkmnpqrstuvwxyzABCDEFGHJKMNPQRSTUVWXYZ23456789";
+      $("clave").value = Array.from(a, (n) => letras[n % letras.length]).join("");
+    });
+
+    $("form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      $("aviso").className = "aviso";
+      $("btn-guardar").disabled = true;
+      try {
+        if (editandoId) {
+          await llamar({ accion: "actualizar", user_id: editandoId, nombre: $("nombre").value.trim(), rol: $("rol").value, clave: $("clave").value });
+        } else {
+          await llamar({ accion: "crear", nombre: $("nombre").value.trim(), correo: $("correo").value.trim(), rol: $("rol").value, clave: $("clave").value });
+        }
+        const editado = !!editandoId;
+        cerrarForm();
+        await cargarUsuarios();
+        mostrarAviso("aviso", "ok", editado ? "Usuario actualizado." : "Usuario creado. Comparte su contraseña temporal de forma segura.");
+      } catch (e) {
+        mostrarAviso("aviso", "error", e.message);
+      }
+      $("btn-guardar").disabled = false;
+    });
+
+    $("lista").addEventListener("click", async (ev) => {
+      const b = ev.target.closest("button[data-accion]");
+      if (!b) return;
+      const u = usuarios.find((x) => x.user_id === b.dataset.id);
+      $("aviso").className = "aviso";
+      try {
+        if (b.dataset.accion === "editar") return abrirForm(u);
+        if (b.dataset.accion === "estado") {
+          if (u.activo && !confirm(`¿Desactivar a ${u.nombre}? No podrá entrar hasta que lo actives de nuevo.`)) return;
+          await llamar({ accion: "actualizar", user_id: u.user_id, activo: !u.activo });
+          await cargarUsuarios();
+          return mostrarAviso("aviso", "ok", u.activo ? "Usuario desactivado." : "Usuario activado.");
+        }
+        if (b.dataset.accion === "borrar") {
+          if (!confirm(`¿Eliminar definitivamente a ${u.nombre}? Esta acción no se puede deshacer. Si solo quieres quitarle el acceso, usa «Desactivar».`)) return;
+          await llamar({ accion: "eliminar", user_id: u.user_id });
+          await cargarUsuarios();
+          mostrarAviso("aviso", "ok", "Usuario eliminado.");
+        }
+      } catch (e) {
+        mostrarAviso("aviso", "error", e.message);
+      }
+    });
+
+    async function cargarUsuarios() {
+      const r = await llamar({ accion: "listar" });
+      usuarios = r.usuarios;
+      pintarUsuarios();
+      pintarRoles();
+    }
+
+    // ---------- Roles y permisos ----------
+    function pintarRoles() {
+      $("roles").innerHTML = roles.map((r) => {
+        const esAdmin = r.clave === "admin";
+        const n = usuarios.filter((u) => u.rol === r.clave).length;
+        return `<section class="tarjeta rol-tarjeta" data-rol="${r.clave}">
+          <div style="display:flex;justify-content:space-between;gap:12px;flex-wrap:wrap;align-items:baseline">
+            <h2>${esc(r.nombre)}</h2>
+            <span class="detalle" style="color:var(--gris-600)">${n} ${n === 1 ? "usuario" : "usuarios"}</span>
+          </div>
+          <p class="sub" style="margin:4px 0 0">${esc(r.descripcion ?? "")}</p>
+          <div class="permisos-lista">
+            ${PERMISOS_CAT.map(([clave, titulo, detalle]) => {
+              const solo = clave === "usuarios_gestionar";
+              const marcado = esAdmin || r.permisos.includes(clave);
+              const bloqueado = esAdmin || solo;
+              return `<label class="permiso-item"><input type="checkbox" value="${clave}" ${marcado ? "checked" : ""} ${bloqueado ? "disabled" : ""}>
+                <span>${esc(titulo)}<small>${esc(detalle)}</small></span></label>`;
+            }).join("")}
+          </div>
+          ${esAdmin ? '<p class="ayuda" style="margin-top:12px">Este rol no se puede modificar.</p>'
+                    : '<div class="acciones"><button class="btn" data-accion="guardar-rol">Guardar permisos</button></div>'}
+        </section>`;
+      }).join("");
+    }
+
+    $("roles").addEventListener("change", (ev) => {
+      // Cualquier permiso exige poder ver; quitar "ver" quita lo demás
+      const tarjeta = ev.target.closest("[data-rol]");
+      if (!tarjeta) return;
+      const ver = tarjeta.querySelector('input[value="eventos_ver"]');
+      const otros = [...tarjeta.querySelectorAll("input:not(:disabled)")].filter((i) => i !== ver);
+      if (ev.target === ver && !ver.checked) otros.forEach((i) => (i.checked = false));
+      else if (ev.target !== ver && ev.target.checked) ver.checked = true;
+    });
+
+    $("roles").addEventListener("click", async (ev) => {
+      const b = ev.target.closest('button[data-accion="guardar-rol"]');
+      if (!b) return;
+      const tarjeta = b.closest("[data-rol]");
+      const permisos = [...tarjeta.querySelectorAll('input:checked:not(:disabled)')].map((i) => i.value);
+      b.disabled = true;
+      const { error } = await sb.from("roles").update({ permisos }).eq("clave", tarjeta.dataset.rol);
+      b.disabled = false;
+      if (error) return mostrarAviso("aviso", "error", "No se pudieron guardar los permisos: " + error.message);
+      roles.find((r) => r.clave === tarjeta.dataset.rol).permisos = permisos;
+      mostrarAviso("aviso", "ok", "Permisos guardados. Aplican de inmediato.");
+    });
+
+    // ---------- Pestañas ----------
+    function cambiarPestana(t) {
+      document.querySelectorAll("#pestanas button").forEach((x) => x.classList.toggle("activo", x.dataset.t === t));
+      $("vista-usuarios").style.display = t === "usuarios" ? "block" : "none";
+      $("vista-roles").style.display = t === "roles" ? "block" : "none";
+      $("btn-nuevo").style.display = t === "usuarios" ? "inline-block" : "none";
+    }
+    $("pestanas").addEventListener("click", (ev) => {
+      const b = ev.target.closest("button");
+      if (b) cambiarPestana(b.dataset.t);
+    });
+
+    let PERFIL_ID = null;
+    (async () => {
+      const ses = await requerirSesion("usuarios_gestionar");
+      if (!ses) return;
+      PERFIL_ID = ses.user.id;
+      montarEncabezado("usuarios");
+      const r = await sb.from("roles").select("*").order("clave");
+      if (r.error) return mostrarAviso("aviso", "error", "No se pudieron cargar los roles: " + r.error.message);
+      const orden = ["admin", "coordinador", "operador", "consulta"];
+      roles = r.data.sort((a, b) => orden.indexOf(a.clave) - orden.indexOf(b.clave));
+      llenarRoles();
+      try { await cargarUsuarios(); }
+      catch (e) {
+        $("lista").innerHTML = "";
+        mostrarAviso("aviso", "error", "No se pudieron cargar los usuarios: " + e.message + " (¿ya desplegaste la función gestionar-usuarios?)");
+      }
+    })();
+  </script>
+</body>
+</html>
