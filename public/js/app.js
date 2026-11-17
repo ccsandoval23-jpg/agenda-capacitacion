@@ -52,6 +52,7 @@ const ICONOS = {
   instructores: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21v-1a6 6 0 0 1 6-6h4a6 6 0 0 1 6 6v1"/></svg>',
   salas: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 21V5a2 2 0 0 1 2-2h8a2 2 0 0 1 2 2v16"/><path d="M2 21h20"/><path d="M16 9h2a2 2 0 0 1 2 2v10"/><circle cx="12" cy="13" r=".8" fill="currentColor"/></svg>',
   usuarios: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l8 3v6c0 4.5-3.2 8.2-8 9-4.8-.8-8-4.5-8-9V6l8-3z"/><path d="M9 12l2 2 4-4"/></svg>',
+  asistente: '<svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 4.7L18.5 9.5l-4.7 1.8L12 16l-1.8-4.7L5.5 9.5l4.7-1.8L12 3z"/><path d="M19 15l.8 2.2L22 18l-2.2.8L19 21l-.8-2.2L16 18l2.2-.8L19 15z"/></svg>',
   salir: '<svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>',
 };
 
@@ -59,6 +60,7 @@ function montarEncabezado(activo) {
   const enlaces = [
     ["panel.html", "Panel", "panel", ICONOS.panel, "eventos_ver"],
     ["eventos.html", "Eventos", "eventos", ICONOS.eventos, "eventos_ver"],
+    ["asistente.html", "Asistente IA", "asistente", ICONOS.asistente, "eventos_ver"],
     ["instructores.html", "Instructores", "instructores", ICONOS.instructores, "catalogos_gestionar"],
     ["salas.html", "Salas", "salas", ICONOS.salas, "catalogos_gestionar"],
     ["usuarios.html", "Usuarios", "usuarios", ICONOS.usuarios, "usuarios_gestionar"],

@@ -1,0 +1,152 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Asistente IA · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css?v=7">
+  <style>
+    .chat { display: flex; flex-direction: column; gap: 12px; margin-bottom: 16px; }
+    .burbuja { padding: 12px 16px; border-radius: 12px; max-width: 760px; white-space: pre-wrap; line-height: 1.45; }
+    .burbuja.usuario { background: var(--rojo-suave); align-self: flex-end; }
+    .burbuja.asistente { background: var(--gris-100); align-self: flex-start; }
+    .propuesta { align-self: stretch; max-width: 760px; border: 2px solid var(--gris-300); border-radius: 12px; padding: 16px; background: var(--blanco); }
+    .propuesta dl { display: grid; grid-template-columns: 130px 1fr; gap: 6px 12px; margin: 12px 0; }
+    .propuesta dt { color: var(--gris-600); font-weight: 700; }
+    .propuesta dd { margin: 0; }
+    .propuesta .acciones { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+    .choque { background: var(--rojo-suave); color: var(--rojo-oscuro); padding: 10px 12px; border-radius: 8px; margin-top: 8px; font-weight: 600; }
+    .entrada { display: flex; gap: 10px; align-items: flex-end; }
+    .entrada textarea { flex: 1; min-height: 70px; resize: vertical; }
+    .ejemplos { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  </style>
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main>
+    <div class="cabecera-pagina">
+      <div>
+        <h1>Asistente IA</h1>
+        <p class="sub">Describe un evento y la IA elige sala e instructor, revisa choques y te lo propone. Nada se crea hasta que confirmes.</p>
+      </div>
+    </div>
+    <div id="aviso" class="aviso"></div>
+    <section class="tarjeta">
+      <div class="ejemplos" id="ejemplos"></div>
+      <div class="chat" id="chat"></div>
+      <div class="entrada">
+        <textarea id="mensaje" placeholder="Ej.: Taller de Excel avanzado para 20 personas del área comercial, el próximo martes de 9 a 12."></textarea>
+        <button class="btn" id="enviar">Enviar</button>
+      </div>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js?v=8"></script>
+  <script>
+    const EJEMPLOS = [
+      "Taller de Excel avanzado para 20 personas, el próximo martes de 9:00 a 12:00",
+      "Curso de negociación para ejecutivos del área de Ventas, 4 cupos, la semana que viene por la mañana",
+      "¿Cuántas personas asistieron a los eventos de este mes?",
+      "¿Qué salas están libres mañana por la tarde?",
+    ];
+    const historial = []; // para aclaraciones; solo texto
+    const chat = document.getElementById("chat");
+    const caja = document.getElementById("mensaje");
+    const boton = document.getElementById("enviar");
+
+    function burbuja(rol, texto) {
+      const d = document.createElement("div");
+      d.className = "burbuja " + rol;
+      d.textContent = texto;
+      chat.appendChild(d);
+      d.scrollIntoView({ behavior: "smooth", block: "end" });
+      return d;
+    }
+
+    async function llamar(cuerpo) {
+      const { data, error } = await sb.functions.invoke("asistente-ia", { body: cuerpo });
+      if (error) {
+        // Las respuestas con error HTTP traen el detalle en el contexto
+        let detalle = error.message;
+        try { const j = await error.context.json(); detalle = j.error || detalle; if (j.choques) return { error: detalle, choques: j.choques }; } catch (_) {}
+        return { error: detalle };
+      }
+      return data;
+    }
+
+    function textoChoques(choques) {
+      return choques.map((c) => `Choque con «${c.evento}» (${c.horario}): ${c.motivos.join(" y ")}.`).join("\n");
+    }
+
+    function mostrarPropuesta(r) {
+      const e = r.evento;
+      const d = document.createElement("div");
+      d.className = "propuesta";
+      d.innerHTML = `
+        <strong>Propuesta de evento</strong>
+        <dl>
+          <dt>Nombre</dt><dd>${esc(e.nombre)}</dd>
+          <dt>Fecha</dt><dd>${formatearFecha(e.fecha)}</dd>
+          <dt>Horario</dt><dd>${esc(e.hora_inicio)} – ${esc(e.hora_fin)}</dd>
+          <dt>Sala</dt><dd>${esc(r.sala.nombre)} (${esc(TIPOS_SALA[r.sala.tipo] ?? r.sala.tipo)}${r.sala.capacidad ? ", capacidad " + r.sala.capacidad : ""})</dd>
+          <dt>Instructor</dt><dd>${esc(r.instructor.nombre)}${r.instructor.especialidad ? " · " + esc(r.instructor.especialidad) : ""}</dd>
+          <dt>Cupo</dt><dd>${e.cupo_maximo} personas</dd>
+          <dt>Dirigido a</dt><dd>${(e.areas_objetivo.length || e.cargos_objetivo.length)
+            ? [e.areas_objetivo.length ? "Áreas: " + e.areas_objetivo.map(esc).join(", ") : "", e.cargos_objetivo.length ? "Cargos: " + e.cargos_objetivo.map(esc).join(", ") : ""].filter(Boolean).join(" · ") + " (prioridad en lista de espera)"
+            : "Todo el personal"}</dd>
+          ${e.descripcion ? `<dt>Descripción</dt><dd>${esc(e.descripcion)}</dd>` : ""}
+        </dl>
+        ${r.justificacion ? `<p class="detalle">${esc(r.justificacion)}</p>` : ""}
+        ${r.choques.length ? `<div class="choque">${esc(textoChoques(r.choques))}</div>` : ""}
+        <div class="acciones">
+          <button class="btn" data-ok ${r.choques.length || !puede("eventos_gestionar") ? "disabled" : ""}>Confirmar y crear</button>
+          <button class="btn btn-claro" data-no>Descartar</button>
+        </div>`;
+      chat.appendChild(d);
+      d.scrollIntoView({ behavior: "smooth", block: "end" });
+      d.querySelector("[data-no]").onclick = () => { d.remove(); burbuja("asistente", "Propuesta descartada. Dime qué quieres cambiar."); };
+      d.querySelector("[data-ok]").onclick = async (ev) => {
+        ev.target.disabled = true;
+        const res = await llamar({ accion: "confirmar", evento: e });
+        if (res.error) {
+          ev.target.disabled = false;
+          return mostrarAviso("aviso", "error", res.error + (res.choques ? "\n" + textoChoques(res.choques) : ""));
+        }
+        d.querySelector(".acciones").innerHTML = `<a class="btn" href="evento-form.html?id=${res.id}">Evento creado · ver y copiar enlace</a>`;
+        mostrarAviso("aviso", "ok", "Evento creado.");
+      };
+    }
+
+    async function enviar(texto) {
+      texto = texto.trim();
+      if (!texto) return;
+      caja.value = "";
+      boton.disabled = true;
+      burbuja("usuario", texto);
+      const espera = burbuja("asistente", "Pensando…");
+      const r = await llamar({ accion: "consultar", mensaje: texto, historial });
+      espera.remove();
+      boton.disabled = false;
+      historial.push({ rol: "usuario", texto });
+      if (r.error) return mostrarAviso("aviso", "error", r.error);
+      if (r.tipo === "propuesta") {
+        historial.push({ rol: "asistente", texto: `(Propuse el evento «${r.evento.nombre}» el ${r.evento.fecha})` });
+        mostrarPropuesta(r);
+      } else {
+        historial.push({ rol: "asistente", texto: r.texto });
+        burbuja("asistente", r.texto);
+      }
+    }
+
+    (async () => {
+      if (!(await requerirSesion("eventos_ver"))) return;
+      montarEncabezado("asistente");
+      document.getElementById("ejemplos").innerHTML = EJEMPLOS.map((t) => `<button class="btn btn-claro btn-chico" type="button">${esc(t)}</button>`).join("");
+      document.querySelectorAll("#ejemplos button").forEach((b) => (b.onclick = () => (caja.value = b.textContent)));
+      boton.onclick = () => enviar(caja.value);
+      caja.addEventListener("keydown", (e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) enviar(caja.value); });
+    })();
+  </script>
+</body>
+</html>

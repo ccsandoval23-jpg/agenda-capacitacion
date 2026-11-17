@@ -13,7 +13,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/app.js?v=8"></script>
   <script>
     const eventoId = new URLSearchParams(location.search).get("e");
     const cont = document.getElementById("contenido");
@@ -37,6 +37,7 @@
             <div><dt>Sala</dt><dd>${esc(ev.sala)}</dd></div>
             <div><dt>Instructor</dt><dd>${esc(ev.instructor)}</dd></div>
           </dl>
+          ${objetivo(ev)}
           <div class="cupos ${lleno ? "lleno" : ""}">
             ${lleno
               ? "Cupos completos. Si te postulas, quedarás en <strong>lista de espera</strong>."
@@ -46,12 +47,47 @@
         <form class="tarjeta" id="form">
           <h2 style="margin-bottom:14px">${lleno ? "Unirme a la lista de espera" : "Postularme"}</h2>
           <div id="aviso" class="aviso"></div>
+          <div class="campo"><label for="correo">Correo</label><input id="correo" type="email" required maxlength="160" autocomplete="email" inputmode="email">
+            <div class="ayuda" id="ayuda-correo">Si estás en el listado del personal, completaremos tus datos.</div></div>
           <div class="campo"><label for="nombre">Nombre completo</label><input id="nombre" required maxlength="120" autocomplete="name"></div>
-          <div class="campo"><label for="correo">Correo</label><input id="correo" type="email" required maxlength="160" autocomplete="email" inputmode="email"></div>
-          <div class="campo"><label for="area">Área o departamento</label><input id="area" required maxlength="80"></div>
+          <div class="campo"><label for="area">Área o departamento</label><select id="area" required></select></div>
+          <div class="campo"><label for="cargo">Cargo</label><select id="cargo" required></select></div>
           <div class="acciones"><button class="btn" id="btn" type="submit" style="width:100%;padding:13px">${lleno ? "Anotarme en la lista de espera" : "Enviar postulación"}</button></div>
         </form>`;
+      llenarSelectores();
       document.getElementById("form").addEventListener("submit", enviar);
+      document.getElementById("correo").addEventListener("blur", autocompletar);
+    }
+
+    let opciones = { areas: [], cargos: [] };
+
+    function objetivo(ev) {
+      const a = ev.areas_objetivo ?? [], c = ev.cargos_objetivo ?? [];
+      if (!a.length && !c.length) return "";
+      const partes = [];
+      if (a.length) partes.push("áreas: <strong>" + a.map(esc).join(", ") + "</strong>");
+      if (c.length) partes.push("cargos: <strong>" + c.map(esc).join(", ") + "</strong>");
+      return `<p class="sub" style="margin:0 0 12px">Dirigido a ${partes.join(" · ")}. Si hay lista de espera, quienes cumplen este perfil tienen prioridad.</p>`;
+    }
+
+    function llenarSelectores() {
+      const opts = (lista) => '<option value="">Selecciona…</option>' + lista.map((x) => `<option>${esc(x)}</option>`).join("");
+      document.getElementById("area").innerHTML = opts(opciones.areas);
+      document.getElementById("cargo").innerHTML = opts(opciones.cargos);
+    }
+
+    // Autocompleta nombre, área y cargo si el correo está en el headcount
+    async function autocompletar() {
+      const correo = document.getElementById("correo").value.trim();
+      const ayuda = document.getElementById("ayuda-correo");
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(correo)) return;
+      const { data } = await sb.rpc("buscar_headcount", { p_correo: correo });
+      const h = Array.isArray(data) ? data[0] : data;
+      if (!h) { ayuda.textContent = "No te encontramos en el listado: completa tus datos a mano."; return; }
+      document.getElementById("nombre").value = h.nombre;
+      document.getElementById("area").value = h.area;
+      document.getElementById("cargo").value = h.cargo;
+      ayuda.textContent = "Datos completados desde el listado del personal. Revísalos antes de enviar.";
     }
 
     async function enviar(e) {
@@ -67,6 +103,7 @@
         p_nombre: document.getElementById("nombre").value,
         p_correo: document.getElementById("correo").value,
         p_area: document.getElementById("area").value,
+        p_cargo: document.getElementById("cargo").value,
       });
 
       if (error) {
@@ -102,7 +139,8 @@
           <h2>Estás en lista de espera</h2>
           <p>Los cupos se completaron. Tu posición es la <strong>n.º ${r.posicion_espera}</strong>.</p>
           ${avisoCorreo}
-          <p>Si se libera un cupo, el equipo te inscribirá y te avisará por correo.</p></div>`;
+          <p>Si se libera un cupo pasarás a inscrito automáticamente (tiene prioridad quien cumple el perfil del evento) y te avisaremos por correo.</p>
+          <p><a href="qr.html?c=${r.codigo}">Guarda este enlace</a> por si necesitas cancelar tu participación.</p></div>`;
       }
     }
 
@@ -111,6 +149,9 @@
       const { data, error } = await sb.rpc("evento_publico", { p_evento_id: eventoId });
       const ev = Array.isArray(data) ? data[0] : data;
       if (error || !ev) return noDisponible();
+      const { data: op } = await sb.rpc("opciones_headcount");
+      const o = Array.isArray(op) ? op[0] : op;
+      opciones = { areas: o?.areas ?? [], cargos: o?.cargos ?? [] };
       pintarEvento(ev);
     })();
   </script>

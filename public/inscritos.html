@@ -39,7 +39,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/app.js?v=8"></script>
   <script>
     const eventoId = new URLSearchParams(location.search).get("e");
     let evento = null;
@@ -53,7 +53,11 @@
 
     function pintar() {
       const ins = postulaciones.filter((p) => p.estado === "inscrito");
-      const esp = postulaciones.filter((p) => p.estado === "lista_espera");
+      // Lista de espera: mayor prioridad primero y, dentro de cada nivel, por orden de llegada
+      const esp = postulaciones.filter((p) => p.estado === "lista_espera")
+        .sort((a, b) => (b.prioridad - a.prioridad) || (a.creado_en < b.creado_en ? -1 : 1));
+      const hayObjetivo = (evento.areas_objetivo?.length || evento.cargos_objetivo?.length);
+      const NIVEL = { 2: "Cumple el perfil", 1: "Cumple parte del perfil", 0: "Fuera del perfil" };
       const can = postulaciones.filter((p) => p.estado === "cancelado");
       const libres = Math.max(evento.cupo_maximo - ins.length, 0);
       const asistieron = ins.filter((p) => p.asistencia === "asistio").length;
@@ -73,7 +77,7 @@
       ].map(([v, t]) => `<div class="indicador"><div class="valor">${v}</div><div class="etiqueta">${t}</div></div>`).join("");
 
       const datos = (p) => `<td><div class="nombre">${esc(p.nombre_completo)}</div><div class="detalle">${esc(p.correo)}</div></td>
-        <td>${esc(p.area)}</td><td>${fechaCorta(p.creado_en)}</td>`;
+        <td>${esc(p.area)}<div class="detalle">${esc(p.cargo ?? "")}</div></td><td>${fechaCorta(p.creado_en)}</td>`;
 
       document.getElementById("inscritos").innerHTML = ins.length
         ? tabla(ins.map((p) => `<tr>${datos(p)}
@@ -83,16 +87,17 @@
               <option value="no_asistio" ${p.asistencia === "no_asistio" ? "selected" : ""}>No asistió</option>
             </select></td>
             <td>${puede("inscritos_gestionar") ? `<button class="btn btn-peligro btn-chico" data-accion="cancelar" data-id="${p.id}">Cancelar</button>` : ""}</td></tr>`),
-                ["Persona", "Área", "Postulada", "Asistencia", ""])
+                ["Persona", "Área / cargo", "Postulada", "Asistencia", ""])
         : '<div class="vacio">Aún no hay inscritos.</div>';
 
       document.getElementById("espera").innerHTML = esp.length
         ? tabla(esp.map((p, i) => `<tr>${i === 0 ? "<td><span class='etiqueta-estado est-espera'>1.º · sigue</span></td>" : `<td>${i + 1}.º</td>`}${datos(p)}
+            ${hayObjetivo ? `<td><span class="etiqueta-estado ${p.prioridad === 2 ? "est-rol" : ""}">${NIVEL[p.prioridad]}</span></td>` : ""}
             <td style="white-space:nowrap">${puede("inscritos_gestionar") ? `
               <button class="btn btn-chico" data-accion="inscribir" data-id="${p.id}" ${libres ? "" : "disabled title='No hay cupos libres'"}>Inscribir</button>
               <button class="btn btn-peligro btn-chico" data-accion="cancelar" data-id="${p.id}">Cancelar</button>` : ""}
             </td></tr>`),
-                ["Posición", "Persona", "Área", "Postulada", ""])
+                ["Posición", "Persona", "Área / cargo", "Postulada", ...(hayObjetivo ? ["Prioridad"] : []), ""])
         : '<div class="vacio">Nadie en lista de espera.</div>';
 
       document.getElementById("acciones-asistencia").innerHTML = pendientes && evento.fecha <= hoyISO() && puede("asistencia_registrar")

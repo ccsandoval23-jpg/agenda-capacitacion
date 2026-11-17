@@ -40,6 +40,12 @@ Flujo principal: *crear evento → compartir enlace → postulación (inscrito o
 - **QR:** generado en el navegador con `qrcode-generator`.
 - **Hosting:** sitio estático (Cloudflare Pages).
 
+### Headcount, prioridad y cancelación (migración 007)
+
+- **Headcount ficticio** (`headcount`): al escribir su correo, el colaborador ve completados nombre, área y cargo. Datos de prueba en `supabase/seed_demo.sql` (ejecutar después de la migración).
+- **Público objetivo:** cada evento puede dirigirse a áreas y/o cargos (vacío = todos). Los cupos se siguen dando por orden de llegada; la prioridad opera en la **lista de espera**: primero quien cumple área y cargo, luego quien cumple solo uno, luego el resto; dentro de cada nivel, por orden de llegada.
+- **Cancelación:** desde su página de QR, el colaborador cancela. Si liberaba un cupo, el primero de la lista de espera pasa a inscrito automáticamente y recibe el correo.
+
 ### Decisiones de diseño
 
 - **El cupo lo decide la base de datos, no la página.** La función `postularse` bloquea la fila del evento y decide «inscrito» o «lista de espera» de forma atómica; un disparador impide sobrecupos incluso al reasignar a mano.

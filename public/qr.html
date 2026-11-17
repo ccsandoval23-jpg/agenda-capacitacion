@@ -17,10 +17,30 @@
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/qrcode-generator@1.4.4/qrcode.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/app.js?v=8"></script>
   <script>
     const codigo = new URLSearchParams(location.search).get("c");
     const cont = document.getElementById("contenido");
+
+    async function cancelar() {
+      if (!confirm("¿Seguro que quieres cancelar tu participación? Tu cupo se liberará para otra persona.")) return;
+      const b = document.getElementById("btn-cancelar");
+      b.disabled = true;
+      const { data, error } = await sb.rpc("cancelar_postulacion", { p_codigo: codigo });
+      if (error) {
+        b.disabled = false;
+        return alert(error.message.includes("EVENTO_PASADO")
+          ? "Este evento ya pasó: no se puede cancelar."
+          : "No pudimos cancelar. Inténtalo de nuevo o escribe al equipo de Capacitación.");
+      }
+      const r = Array.isArray(data) ? data[0] : data;
+      // Avisa por correo a quien pasó de la lista de espera a inscrito
+      if (r?.promovido_codigo) {
+        try { await sb.functions.invoke("enviar-confirmacion", { body: { codigo: r.promovido_codigo } }); } catch (_) {}
+      }
+      cont.innerHTML = `<div class="tarjeta resultado"><div class="icono">✓</div><h2>Cancelaste tu participación</h2>
+        <p>Gracias por avisar: tu cupo quedó disponible para otra persona.</p></div>`;
+    }
 
     function invalido() {
       cont.innerHTML = `<div class="tarjeta resultado"><h2>Código no válido</h2>
@@ -52,12 +72,17 @@
             <div class="qr-caja">${qr.createSvgTag({ cellSize: 6, margin: 0, scalable: true })}</div>
             <p class="sub" style="margin:14px 0 0">Muéstralo al equipo el día del evento. Es personal e intransferible.</p>
           </div>
-          <div class="tarjeta">${evento}</div>`;
+          <div class="tarjeta">${evento}</div>
+          <div class="tarjeta centro"><p class="sub" style="margin:0 0 10px">¿No podrás asistir? Avísanos para liberar tu cupo.</p>
+            <button class="btn btn-peligro" id="btn-cancelar">Cancelar mi asistencia</button></div>`;
+        document.getElementById("btn-cancelar").onclick = cancelar;
       } else if (p.estado === "lista_espera") {
         cont.innerHTML = `<div class="tarjeta resultado espera"><div class="icono">…</div>
           <h2>Sigues en lista de espera</h2>
-          <p>Aún no tienes código QR. Si se libera un cupo y el equipo te inscribe, te avisaremos por correo y podrás verlo aquí.</p></div>
-          <div class="tarjeta">${evento}</div>`;
+          <p>Aún no tienes código QR. Si se libera un cupo pasarás a inscrito automáticamente, te avisaremos por correo y podrás verlo aquí.</p></div>
+          <div class="tarjeta">${evento}</div>
+          <div class="tarjeta centro"><button class="btn btn-peligro" id="btn-cancelar">Salir de la lista de espera</button></div>`;
+        document.getElementById("btn-cancelar").onclick = cancelar;
       } else {
         cont.innerHTML = `<div class="tarjeta resultado"><h2>Postulación cancelada</h2>
           <p>Esta postulación fue cancelada, por lo que no tiene código QR.</p></div>`;

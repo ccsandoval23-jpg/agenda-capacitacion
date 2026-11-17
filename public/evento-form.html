@@ -32,6 +32,14 @@
           <input id="cupo_maximo" type="number" min="1" step="1" required>
           <div class="ayuda" id="ayuda-cupo"></div>
         </div>
+        <div class="completo">
+          <label>Dirigido a <span class="ayuda" style="display:inline">(opcional · sin selección = todo el personal)</span></label>
+          <div class="ayuda" style="margin:2px 0 8px">En lista de espera tendrán prioridad quienes cumplan el área y el cargo; después quienes cumplan solo uno.</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+            <fieldset style="border:0;padding:0;margin:0"><legend style="font-weight:700;margin-bottom:6px">Áreas</legend><div id="chk-areas"></div></fieldset>
+            <fieldset style="border:0;padding:0;margin:0"><legend style="font-weight:700;margin-bottom:6px">Cargos</legend><div id="chk-cargos"></div></fieldset>
+          </div>
+        </div>
         <div class="completo" id="bloque-estado" style="display:none">
           <label for="estado">Estado de las postulaciones</label>
           <select id="estado"><option value="abierto">Abierto (acepta postulaciones)</option><option value="cerrado">Cerrado</option></select>
@@ -55,7 +63,7 @@
   </main>
   <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
   <script src="js/config.js"></script>
-  <script src="js/app.js?v=7"></script>
+  <script src="js/app.js?v=8"></script>
   <script>
     const params = new URLSearchParams(location.search);
     const eventoId = params.get("id");
@@ -63,7 +71,16 @@
     const campos = ["nombre", "descripcion", "fecha", "hora_inicio", "hora_fin", "cupo_maximo"];
     let catInstructores = [];
     let catSalas = [];
+    let opcionesAreas = [], opcionesCargos = [];
     const LEGADO = "__legado";
+
+    function pintarChecks(id, opciones, marcadas) {
+      const todas = [...new Set([...opciones, ...marcadas])].sort((a, b) => a.localeCompare(b, "es"));
+      document.getElementById(id).innerHTML = todas.length
+        ? todas.map((x) => `<label style="display:flex;gap:8px;align-items:center;font-weight:400;margin:4px 0"><input type="checkbox" style="width:auto" value="${esc(x)}" ${marcadas.includes(x) ? "checked" : ""}>${esc(x)}</label>`).join("")
+        : '<span class="ayuda">Sin datos en el headcount.</span>';
+    }
+    const leerChecks = (id) => [...document.querySelectorAll(`#${id} input:checked`)].map((i) => i.value);
 
     // Llena un selector con el catálogo activo (+ el valor actual del evento si ya no está disponible)
     function llenarSelector(id, items, etiqueta, actualId, actualTexto) {
@@ -110,6 +127,8 @@
         hora_inicio: val("hora_inicio"),
         hora_fin: val("hora_fin"),
         cupo_maximo: parseInt(val("cupo_maximo"), 10),
+        areas_objetivo: leerChecks("chk-areas"),
+        cargos_objetivo: leerChecks("chk-cargos"),
       };
       const salaSel = val("sala");
       const instSel = val("instructor");
@@ -167,7 +186,12 @@
       if (ins.error || sal.error) mostrarAviso("aviso", "error", "No se pudieron cargar instructores y salas (¿ya ejecutaste la migración 005?).");
       catInstructores = ins.data ?? [];
       catSalas = sal.data ?? [];
+      const hc = await sb.from("headcount").select("area, cargo").eq("activo", true);
+      opcionesAreas = [...new Set((hc.data ?? []).map((x) => x.area))];
+      opcionesCargos = [...new Set((hc.data ?? []).map((x) => x.cargo))];
       if (!eventoId) {
+        pintarChecks("chk-areas", opcionesAreas, []);
+        pintarChecks("chk-cargos", opcionesCargos, []);
         llenarSelector("sala", catSalas, (x) => `${x.nombre} · ${TIPOS_SALA[x.tipo]}`, null, null);
         llenarSelector("instructor", catInstructores, (x) => x.nombre, null, null);
         ayudaCatalogos();
@@ -189,6 +213,8 @@
       ayudaCatalogos();
       for (const c of campos) document.getElementById(c).value = (c.startsWith("hora") ? formatearHora(ev.data[c]) : ev.data[c]) ?? "";
       document.getElementById("estado").value = ev.data.estado;
+      pintarChecks("chk-areas", opcionesAreas, ev.data.areas_objetivo ?? []);
+      pintarChecks("chk-cargos", opcionesCargos, ev.data.cargos_objetivo ?? []);
       inscritosActuales = (po.data ?? []).filter((p) => p.estado === "inscrito").length;
       document.getElementById("ayuda-cupo").textContent = `Inscritos actualmente: ${inscritosActuales}.`;
       mostrarEnlace(eventoId);
