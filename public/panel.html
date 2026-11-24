@@ -18,6 +18,14 @@
     </div>
     <div id="aviso" class="aviso"></div>
     <section class="indicadores" id="indicadores"></section>
+    <section class="tarjeta" id="sec-headcount" style="display:none;margin-bottom:16px">
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px">
+        <h2>Headcount y participación</h2>
+        <a class="btn btn-claro btn-chico" href="headcount.html">Ver headcount</a>
+      </div>
+      <div class="indicadores" id="ind-headcount"></div>
+      <div class="tabla-scroll" id="hc-areas"></div>
+    </section>
     <section class="tarjeta">
       <h2 style="margin-bottom:12px">Próximos eventos</h2>
       <div class="tabla-scroll" id="proximos"></div>
@@ -27,9 +35,59 @@
   <script src="js/config.js"></script>
   <script src="js/app.js?v=9"></script>
   <script>
+    // Trae todas las filas de una tabla (Supabase devuelve máximo 1000 por consulta)
+    async function traerTodo(tabla, columnas) {
+      const filas = [];
+      for (let desde = 0; ; desde += 1000) {
+        const { data, error } = await sb.from(tabla).select(columnas).range(desde, desde + 999);
+        if (error) throw error;
+        filas.push(...data);
+        if (data.length < 1000) break;
+      }
+      return filas;
+    }
+
+    // Participación = colaboradores activos con al menos una inscripción confirmada en algún evento
+    async function pintarHeadcount() {
+      try {
+        const [hc, po] = await Promise.all([traerTodo("headcount", "correo, area, activo"), traerTodo("postulaciones", "correo, estado")]);
+        const activos = hc.filter((h) => h.activo);
+        if (!activos.length) return;
+        const inscritos = new Set(po.filter((p) => p.estado === "inscrito").map((p) => p.correo.toLowerCase()));
+        const participa = (h) => inscritos.has(h.correo.toLowerCase());
+        const pct = (n, t) => (t ? Math.round((n / t) * 100) : 0);
+
+        const porArea = {};
+        for (const h of activos) {
+          const a = (porArea[h.area] ??= { total: 0, part: 0 });
+          a.total++;
+          if (participa(h)) a.part++;
+        }
+        const nPart = activos.filter(participa).length;
+        document.getElementById("ind-headcount").innerHTML = [
+          [activos.length, "Colaboradores activos"],
+          [Object.keys(porArea).length, "Áreas"],
+          [pct(nPart, activos.length) + "%", `Han participado (${nPart} de ${activos.length})`],
+          [activos.length - nPart, "Sin ninguna inscripción"],
+        ].map(([v, t]) => `<div class="indicador"><div class="valor">${v}</div><div class="etiqueta">${t}</div></div>`).join("");
+
+        document.getElementById("hc-areas").innerHTML = `<table><thead><tr><th>Área</th><th>Colaboradores</th><th>Participación</th></tr></thead><tbody>` +
+          Object.entries(porArea).sort((a, b) => b[1].total - a[1].total || a[0].localeCompare(b[0], "es")).map(([area, v]) => `<tr>
+            <td><div class="nombre">${esc(area)}</div></td>
+            <td>${v.total}</td>
+            <td><div class="barra"><span style="width:${pct(v.part, v.total)}%"></span></div><div class="barra-texto">${v.part} de ${v.total} (${pct(v.part, v.total)}%)</div></td>
+          </tr>`).join("") + "</tbody></table>";
+        document.getElementById("sec-headcount").style.display = "block";
+      } catch (err) {
+        // Si el headcount aún no existe, el panel de eventos sigue funcionando
+        console.warn("Headcount no disponible:", err.message);
+      }
+    }
+
     (async () => {
       if (!(await requerirSesion("eventos_ver"))) return;
       montarEncabezado("panel");
+      pintarHeadcount();
       if (!puede("eventos_gestionar")) document.querySelectorAll('a[href="evento-form.html"]').forEach((x) => x.remove());
       try {
         const eventos = await cargarEventosConConteos();
