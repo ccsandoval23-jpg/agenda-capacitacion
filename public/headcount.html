@@ -1,0 +1,325 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Headcount · Agenda de Capacitación</title>
+  <link rel="stylesheet" href="css/styles.css?v=7">
+</head>
+<body>
+  <header id="encabezado"></header>
+  <main>
+    <div class="cabecera-pagina">
+      <div>
+        <h1>Headcount</h1>
+        <p class="sub">Colaboradores de la organización. Se usa para autocompletar postulaciones y priorizar la lista de espera.</p>
+      </div>
+      <div class="acciones" id="acciones-gestion" style="display:none">
+        <button class="btn btn-claro" id="btn-importar" type="button">Importar CSV</button>
+        <button class="btn" id="btn-nueva" type="button">+ Nuevo colaborador</button>
+      </div>
+    </div>
+    <div id="aviso" class="aviso"></div>
+    <input id="archivo" type="file" accept=".csv,text/csv" style="display:none">
+
+    <section class="indicadores" id="indicadores"></section>
+
+    <form class="tarjeta" id="form" style="display:none;margin-bottom:16px">
+      <h2 id="form-titulo" style="margin-bottom:14px">Nuevo colaborador</h2>
+      <div class="form-grid">
+        <div><label for="nombre">Nombre completo</label><input id="nombre" required maxlength="120"></div>
+        <div><label for="correo">Correo</label><input id="correo" type="email" required maxlength="160" placeholder="nombre@ejemplo.com"></div>
+        <div><label for="area">Área</label><input id="area" required maxlength="80" list="lista-areas"></div>
+        <div><label for="cargo">Cargo</label><input id="cargo" required maxlength="80" list="lista-cargos"></div>
+        <div style="display:flex;align-items:flex-end"><label style="display:flex;gap:8px;align-items:center;font-weight:700;margin-bottom:12px"><input id="activo" type="checkbox" checked style="width:auto"> Activo en la nómina</label></div>
+      </div>
+      <datalist id="lista-areas"></datalist>
+      <datalist id="lista-cargos"></datalist>
+      <div class="acciones">
+        <button class="btn" id="btn-guardar" type="submit">Guardar</button>
+        <button class="btn btn-claro" id="btn-cancelar" type="button">Cancelar</button>
+      </div>
+    </form>
+
+    <section class="tarjeta" id="tarjeta-areas" style="margin-bottom:16px">
+      <h2 style="margin-bottom:12px">Colaboradores activos por área</h2>
+      <div id="por-area"></div>
+    </section>
+
+    <section class="tarjeta">
+      <div class="form-grid" style="margin-bottom:8px">
+        <div><label for="f-buscar">Buscar</label><input id="f-buscar" type="search" placeholder="Nombre o correo"></div>
+        <div><label for="f-area">Área</label><select id="f-area"><option value="">Todas</option></select></div>
+        <div><label for="f-cargo">Cargo</label><select id="f-cargo"><option value="">Todos</option></select></div>
+        <div><label for="f-estado">Estado</label>
+          <select id="f-estado">
+            <option value="activo">Activos</option>
+            <option value="inactivo">Inactivos</option>
+            <option value="">Todos</option>
+          </select>
+        </div>
+      </div>
+      <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:8px">
+        <span class="detalle" id="conteo" style="color:var(--gris-600);font-size:.85rem"></span>
+        <button class="btn btn-claro btn-chico" id="btn-exportar" type="button">Exportar CSV</button>
+      </div>
+      <div class="tabla-scroll" id="lista"></div>
+    </section>
+  </main>
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2.45.4/dist/umd/supabase.min.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/app.js?v=9"></script>
+  <script>
+    let personas = [];
+    let editandoId = null;
+    let gestiona = false;
+    const $ = (id) => document.getElementById(id);
+    const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
+    const norm = (t) => String(t ?? "").trim().toLowerCase();
+    const unicos = (campo) => [...new Set(personas.map((p) => p[campo]))].sort((a, b) => a.localeCompare(b, "es"));
+
+    function llenarSelect(sel, valores, todos) {
+      const actual = sel.value;
+      sel.innerHTML = `<option value="">${todos}</option>` + valores.map((v) => `<option value="${esc(v)}">${esc(v)}</option>`).join("");
+      sel.value = valores.includes(actual) ? actual : "";
+    }
+
+    function pintarResumen() {
+      const act = personas.filter((p) => p.activo);
+      const areas = new Set(act.map((p) => p.area));
+      const cargos = new Set(act.map((p) => p.cargo));
+      $("indicadores").innerHTML = [
+        [act.length, "Colaboradores activos"],
+        [areas.size, "Áreas"],
+        [cargos.size, "Cargos distintos"],
+        [personas.length - act.length, "Inactivos"],
+      ].map(([v, t]) => `<div class="indicador"><div class="valor">${v}</div><div class="etiqueta">${t}</div></div>`).join("");
+
+      const conteo = {};
+      for (const p of act) conteo[p.area] = (conteo[p.area] ?? 0) + 1;
+      const filas = Object.entries(conteo).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0], "es"));
+      const max = filas.length ? filas[0][1] : 1;
+      $("por-area").innerHTML = filas.length
+        ? filas.map(([a, n]) => `<div style="display:grid;grid-template-columns:minmax(110px,180px) 1fr 40px;gap:12px;align-items:center;margin-bottom:8px">
+            <span style="font-weight:700">${esc(a)}</span>
+            <div class="barra"><span style="width:${Math.round((n / max) * 100)}%"></span></div>
+            <span style="text-align:right;font-weight:700">${n}</span></div>`).join("")
+        : '<div class="vacio">Sin colaboradores activos.</div>';
+    }
+
+    function filtrados() {
+      const q = norm($("f-buscar").value), a = $("f-area").value, c = $("f-cargo").value, e = $("f-estado").value;
+      return personas.filter((p) =>
+        (!q || norm(p.nombre).includes(q) || norm(p.correo).includes(q)) &&
+        (!a || p.area === a) && (!c || p.cargo === c) &&
+        (!e || (e === "activo") === p.activo));
+    }
+
+    function pintar() {
+      const lista = filtrados();
+      $("conteo").textContent = `${lista.length} de ${personas.length} colaboradores`;
+      const cont = $("lista");
+      if (!lista.length) {
+        cont.innerHTML = `<div class="vacio">${personas.length ? "Ningún colaborador coincide con los filtros." : "Aún no hay colaboradores. Agrega uno o importa un CSV."}</div>`;
+        return;
+      }
+      cont.innerHTML = `<table><thead><tr><th>Nombre</th><th>Correo</th><th>Área</th><th>Cargo</th><th>Estado</th>${gestiona ? "<th></th>" : ""}</tr></thead><tbody>` +
+        lista.map((p) => `<tr>
+          <td><div class="nombre">${esc(p.nombre)}</div></td>
+          <td>${esc(p.correo)}</td>
+          <td>${esc(p.area)}</td>
+          <td>${esc(p.cargo)}</td>
+          <td><span class="etiqueta-estado ${p.activo ? "est-abierto" : "est-cerrado"}">${p.activo ? "Activo" : "Inactivo"}</span></td>
+          ${gestiona ? `<td style="white-space:nowrap">
+            <button class="btn btn-claro btn-chico" data-accion="editar" data-id="${p.id}">Editar</button>
+            <button class="btn btn-peligro btn-chico" data-accion="borrar" data-id="${p.id}">Eliminar</button>
+          </td>` : ""}
+        </tr>`).join("") + "</tbody></table>";
+    }
+
+    function refrescar() {
+      const areas = unicos("area"), cargos = unicos("cargo");
+      llenarSelect($("f-area"), areas, "Todas");
+      llenarSelect($("f-cargo"), cargos, "Todos");
+      $("lista-areas").innerHTML = areas.map((v) => `<option value="${esc(v)}">`).join("");
+      $("lista-cargos").innerHTML = cargos.map((v) => `<option value="${esc(v)}">`).join("");
+      pintarResumen();
+      pintar();
+    }
+
+    async function cargar() {
+      // Supabase limita a 1000 filas por consulta: se pagina para traer toda la nómina
+      const todas = [];
+      for (let desde = 0; ; desde += 1000) {
+        const { data, error } = await sb.from("headcount").select("*").order("nombre").range(desde, desde + 999);
+        if (error) throw error;
+        todas.push(...data);
+        if (data.length < 1000) break;
+      }
+      personas = todas;
+      refrescar();
+    }
+
+    function abrirForm(p) {
+      editandoId = p ? p.id : null;
+      $("form-titulo").textContent = p ? "Editar colaborador" : "Nuevo colaborador";
+      $("nombre").value = p?.nombre ?? "";
+      $("correo").value = p?.correo ?? "";
+      $("area").value = p?.area ?? "";
+      $("cargo").value = p?.cargo ?? "";
+      $("activo").checked = p ? p.activo : true;
+      $("form").style.display = "block";
+      $("nombre").focus();
+      $("form").scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+    function cerrarForm() { $("form").style.display = "none"; editandoId = null; }
+
+    // ---------- CSV ----------
+    function parsearCSV(texto) {
+      const filas = [];
+      let fila = [], campo = "", comillas = false;
+      texto = texto.replace(/^﻿/, "");
+      const sep = (texto.split("\n")[0].match(/;/g) || []).length > (texto.split("\n")[0].match(/,/g) || []).length ? ";" : ",";
+      for (let i = 0; i < texto.length; i++) {
+        const ch = texto[i];
+        if (comillas) {
+          if (ch === '"' && texto[i + 1] === '"') { campo += '"'; i++; }
+          else if (ch === '"') comillas = false;
+          else campo += ch;
+        } else if (ch === '"') comillas = true;
+        else if (ch === sep) { fila.push(campo); campo = ""; }
+        else if (ch === "\n" || ch === "\r") {
+          if (ch === "\r" && texto[i + 1] === "\n") i++;
+          fila.push(campo); campo = "";
+          if (fila.some((c) => c.trim())) filas.push(fila);
+          fila = [];
+        } else campo += ch;
+      }
+      fila.push(campo);
+      if (fila.some((c) => c.trim())) filas.push(fila);
+      return filas;
+    }
+
+    const celdaCSV = (v) => /[",;\n]/.test(String(v)) ? `"${String(v).replace(/"/g, '""')}"` : String(v);
+
+    function exportar() {
+      const lista = filtrados();
+      const csv = "nombre,correo,area,cargo,activo\n" +
+        lista.map((p) => [p.nombre, p.correo, p.area, p.cargo, p.activo ? "si" : "no"].map(celdaCSV).join(",")).join("\n");
+      const a = document.createElement("a");
+      a.href = URL.createObjectURL(new Blob(["﻿" + csv], { type: "text/csv;charset=utf-8" }));
+      a.download = `headcount_${hoyISO()}.csv`;
+      a.click();
+      URL.revokeObjectURL(a.href);
+    }
+
+    async function importar(archivo) {
+      const filas = parsearCSV(await archivo.text());
+      if (filas.length < 2) return mostrarAviso("aviso", "error", "El archivo no tiene datos. Columnas esperadas: nombre, correo, area, cargo (y opcional activo).");
+      const cab = filas[0].map((c) => norm(c).normalize("NFD").replace(/[̀-ͯ]/g, ""));
+      const idx = (n) => cab.indexOf(n);
+      const [iN, iC, iA, iG, iV] = [idx("nombre"), idx("correo"), idx("area"), idx("cargo"), idx("activo")];
+      if ([iN, iC, iA, iG].includes(-1)) return mostrarAviso("aviso", "error", "Faltan columnas. Se necesitan: nombre, correo, area, cargo (y opcional activo).");
+
+      const porCorreo = new Map(), errores = [];
+      filas.slice(1).forEach((f, i) => {
+        const r = { nombre: (f[iN] ?? "").trim(), correo: norm(f[iC]), area: (f[iA] ?? "").trim(), cargo: (f[iG] ?? "").trim(),
+                    activo: iV === -1 ? true : !["no", "false", "0", "inactivo"].includes(norm(f[iV])) };
+        if (!r.nombre || !r.area || !r.cargo || !EMAIL_RE.test(r.correo)) errores.push(i + 2);
+        else porCorreo.set(r.correo, r); // si el correo se repite en el archivo, gana la última fila
+      });
+      const registros = [...porCorreo.values()];
+      if (!registros.length) return mostrarAviso("aviso", "error", `Ninguna fila es válida (revisa las filas: ${errores.slice(0, 10).join(", ")}).`);
+
+      const existentes = new Set(personas.map((p) => norm(p.correo)));
+      const nuevos = registros.filter((r) => !existentes.has(r.correo)).length;
+      if (!confirm(`Se importarán ${registros.length} colaboradores: ${nuevos} nuevos y ${registros.length - nuevos} que actualizan datos existentes.` +
+                   (errores.length ? `\n${errores.length} fila(s) inválidas se omitirán.` : "") + "\n¿Continuar?")) return;
+
+      $("btn-importar").disabled = true;
+      for (let i = 0; i < registros.length; i += 500) {
+        const lote = registros.slice(i, i + 500);
+        const { error } = await upsertLote(lote);
+        if (error) { $("btn-importar").disabled = false; return mostrarAviso("aviso", "error", "No se pudo importar: " + error.message); }
+      }
+      $("btn-importar").disabled = false;
+      await cargar();
+      mostrarAviso("aviso", "ok", `Importación lista: ${registros.length} colaboradores procesados` + (errores.length ? `, ${errores.length} fila(s) omitidas (filas ${errores.slice(0, 10).join(", ")}${errores.length > 10 ? "…" : ""}).` : "."));
+    }
+
+    // El índice único es sobre lower(correo), así que no sirve onConflict por columna: se separa en altas y cambios
+    async function upsertLote(lote) {
+      const porCorreo = new Map(personas.map((p) => [norm(p.correo), p]));
+      const altas = lote.filter((r) => !porCorreo.has(r.correo));
+      const cambios = lote.filter((r) => porCorreo.has(r.correo));
+      if (altas.length) {
+        const { error } = await sb.from("headcount").insert(altas);
+        if (error) return { error };
+      }
+      for (const r of cambios) {
+        const { error } = await sb.from("headcount").update(r).eq("id", porCorreo.get(r.correo).id);
+        if (error) return { error };
+      }
+      return { error: null };
+    }
+
+    // ---------- Eventos ----------
+    $("btn-nueva").addEventListener("click", () => abrirForm(null));
+    $("btn-cancelar").addEventListener("click", cerrarForm);
+    $("btn-exportar").addEventListener("click", exportar);
+    $("btn-importar").addEventListener("click", () => $("archivo").click());
+    $("archivo").addEventListener("change", async (ev) => {
+      const f = ev.target.files[0];
+      ev.target.value = "";
+      if (f) await importar(f);
+    });
+    for (const id of ["f-buscar", "f-area", "f-cargo", "f-estado"]) $(id).addEventListener("input", pintar);
+
+    $("form").addEventListener("submit", async (ev) => {
+      ev.preventDefault();
+      $("aviso").className = "aviso";
+      const datos = {
+        nombre: $("nombre").value.trim(),
+        correo: $("correo").value.trim().toLowerCase(),
+        area: $("area").value.trim(),
+        cargo: $("cargo").value.trim(),
+        activo: $("activo").checked,
+      };
+      $("btn-guardar").disabled = true;
+      const res = editandoId
+        ? await sb.from("headcount").update(datos).eq("id", editandoId)
+        : await sb.from("headcount").insert(datos);
+      $("btn-guardar").disabled = false;
+      if (res.error) {
+        const dup = res.error.code === "23505";
+        return mostrarAviso("aviso", "error", dup ? "Ya existe un colaborador con ese correo." : "No se pudo guardar: " + res.error.message);
+      }
+      const editado = !!editandoId;
+      cerrarForm();
+      await cargar();
+      mostrarAviso("aviso", "ok", editado ? "Colaborador actualizado." : "Colaborador agregado.");
+    });
+
+    $("lista").addEventListener("click", async (ev) => {
+      const b = ev.target.closest("button[data-accion]");
+      if (!b) return;
+      const p = personas.find((x) => x.id === b.dataset.id);
+      if (b.dataset.accion === "editar") return abrirForm(p);
+      if (!confirm(`¿Eliminar a «${p.nombre}» del headcount? Sus postulaciones existentes no se modifican. Si solo salió de la organización, es mejor marcarlo como inactivo.`)) return;
+      const { error } = await sb.from("headcount").delete().eq("id", p.id);
+      if (error) return mostrarAviso("aviso", "error", "No se pudo eliminar: " + error.message);
+      await cargar();
+      mostrarAviso("aviso", "ok", "Colaborador eliminado.");
+    });
+
+    (async () => {
+      if (!(await requerirSesion("eventos_ver"))) return;
+      montarEncabezado("headcount");
+      gestiona = puede("catalogos_gestionar");
+      $("acciones-gestion").style.display = gestiona ? "flex" : "none";
+      try { await cargar(); }
+      catch (err) { mostrarAviso("aviso", "error", "No se pudo cargar el headcount: " + err.message + " (¿ya ejecutaste la migración 007?)"); }
+    })();
+  </script>
+</body>
+</html>

@@ -30,6 +30,7 @@ Flujo principal: *crear evento → compartir enlace → postulación (inscrito o
 | `qr.html` | «Mi código QR» (público, con el código secreto) |
 | `verificar.html` | Verificación por QR (solo equipo con sesión) |
 | `instructores.html` / `salas.html` | Catálogos de instructores y salas (tipo y ubicación) |
+| `headcount.html` | Nómina de colaboradores: indicadores, filtros, alta/edición, importar y exportar CSV (editar requiere permiso de catálogos) |
 | `usuarios.html` | Usuarios del equipo, roles y permisos (solo administradores) |
 
 ## Arquitectura
